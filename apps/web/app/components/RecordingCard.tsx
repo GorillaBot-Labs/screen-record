@@ -1,8 +1,10 @@
 "use client";
 
 import type { Recording } from "@prisma/client";
-import { ExternalLink, Link2 } from "lucide-react";
-import { useCallback, useRef } from "react";
+import { deleteRecording } from "@/app/actions/delete-recording";
+import { ExternalLink, Link2, Trash2 } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { useCallback, useRef, useState } from "react";
 import { toast } from "sonner";
 
 function displayName(recording: Pick<Recording, "title" | "gcsObjectName">) {
@@ -28,6 +30,8 @@ function asDate(value: Date | string): Date {
 
 export function RecordingCard({ recording }: { recording: Recording }) {
   const videoRef = useRef<HTMLVideoElement>(null);
+  const router = useRouter();
+  const [deleting, setDeleting] = useState(false);
 
   const togglePlayback = useCallback(() => {
     const el = videoRef.current;
@@ -47,6 +51,31 @@ export function RecordingCard({ recording }: { recording: Recording }) {
       toast.error("Could not copy link");
     }
   }, [recording.publicUrl]);
+
+  const handleDelete = useCallback(async () => {
+    const label = displayName(recording);
+    if (
+      !window.confirm(
+        `Delete "${label}"? This removes the file from cloud storage and the catalog. You cannot undo this.`,
+      )
+    ) {
+      return;
+    }
+    setDeleting(true);
+    try {
+      const result = await deleteRecording(recording.id);
+      if (!result.ok) {
+        toast.error(result.error);
+        return;
+      }
+      toast.success("Recording deleted");
+      router.refresh();
+    } catch {
+      toast.error("Delete failed");
+    } finally {
+      setDeleting(false);
+    }
+  }, [recording, router]);
 
   const name = displayName(recording);
   const createdAt = asDate(recording.createdAt);
@@ -104,6 +133,15 @@ export function RecordingCard({ recording }: { recording: Recording }) {
             aria-label="Copy video URL to clipboard"
           >
             <Link2 className="h-4 w-4" aria-hidden />
+          </button>
+          <button
+            type="button"
+            onClick={handleDelete}
+            disabled={deleting}
+            className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-red-200 bg-red-50 text-red-800 transition-colors hover:bg-red-100 disabled:opacity-50 dark:border-red-900/60 dark:bg-red-950/40 dark:text-red-200 dark:hover:bg-red-950/70"
+            aria-label="Delete recording"
+          >
+            <Trash2 className="h-4 w-4" aria-hidden />
           </button>
         </div>
       </div>

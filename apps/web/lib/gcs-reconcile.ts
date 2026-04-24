@@ -1,25 +1,5 @@
-import { Storage } from "@google-cloud/storage";
 import type { PrismaClient } from "@prisma/client";
-
-const RECORDINGS_PREFIX = "recordings/";
-
-function getStorage(): Storage {
-  const raw = process.env.GCP_SERVICE_ACCOUNT_JSON?.trim();
-  if (raw) {
-    const credentials = JSON.parse(raw) as { project_id?: string };
-    return new Storage({
-      credentials,
-      projectId: credentials.project_id,
-    });
-  }
-  return new Storage();
-}
-
-function bucketName(): string {
-  const name = process.env.GCS_BUCKET?.trim();
-  if (name) return name;
-  return "screen-record";
-}
+import { getGcsBucketName, getStorage, RECORDINGS_PREFIX } from "./gcs";
 
 export type ReconcileStats = {
   /** MP4 objects under `recordings/` seen in GCS. */
@@ -36,7 +16,7 @@ export async function reconcileRecordingsFromGcs(
   db: PrismaClient,
 ): Promise<ReconcileStats> {
   const storage = getStorage();
-  const bucket = storage.bucket(bucketName());
+  const bucket = storage.bucket(getGcsBucketName());
 
   let scanned = 0;
   let upserted = 0;
