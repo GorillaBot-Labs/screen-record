@@ -3,7 +3,17 @@ import { homedir, tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { spawn, execFileSync, type ChildProcess } from 'node:child_process'
-import { app, BrowserWindow, clipboard, ipcMain, shell, Tray, Menu, nativeImage } from 'electron'
+import {
+  app,
+  BrowserWindow,
+  clipboard,
+  ipcMain,
+  Menu,
+  nativeImage,
+  Notification,
+  shell,
+  Tray,
+} from 'electron'
 import { destroyCountdownOverlay, registerCountdownOverlayIpc } from './countdown-overlay'
 import { uploadRecordingToGcs } from './gcs-upload'
 
@@ -59,6 +69,14 @@ function recordingStagingDir(): string {
 function defaultOutputPath(): string {
   const stamp = new Date().toISOString().replaceAll(':', '-').replaceAll('.', '-')
   return path.join(recordingStagingDir(), `recording_${stamp}.mp4`)
+}
+
+function notifyShareLinkCopied(): void {
+  if (!Notification.isSupported()) return
+  new Notification({
+    title: 'Recording ready',
+    body: 'Your share link was copied to the clipboard.',
+  }).show()
 }
 
 function trayIconImage(): Electron.NativeImage {
@@ -383,6 +401,7 @@ ipcMain.handle(
         let localFileDeleted = false
         if (result.ok) {
           clipboard.writeText(result.url)
+          notifyShareLinkCopied()
           try {
             unlinkSync(outputPath)
             localFileDeleted = true
