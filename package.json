@@ -1,66 +1,11 @@
 {
-  "name": "screen-record",
-  "version": "0.1.0",
+  "name": "screen-record-monorepo",
   "private": true,
-  "type": "module",
-  "main": "dist-electron/main.js",
+  "workspaces": ["apps/*"],
   "scripts": {
-    "build:native": "bash scripts/build-native.sh",
-    "dev": "npm run build:native && vite",
-    "build": "npm run build:native && tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.node.json && vite build",
-    "build:mac": "npm run build && electron-builder --mac",
-    "deploy": "bash scripts/deploy.sh",
-    "install:mac": "npm run deploy",
-    "prestart": "npm run build:native",
-    "start": "electron .",
-    "preview": "vite preview"
-  },
-  "dependencies": {
-    "@google-cloud/storage": "^7.19.0",
-    "react": "^19.0.0",
-    "react-dom": "^19.0.0"
-  },
-  "devDependencies": {
-    "@types/react": "^19.0.0",
-    "@types/react-dom": "^19.0.0",
-    "@vitejs/plugin-react": "^4.4.0",
-    "electron": "^35.0.0",
-    "electron-builder": "^26.0.0",
-    "typescript": "~5.8.0",
-    "vite": "^6.2.0",
-    "vite-plugin-electron": "^0.29.0"
-  },
-  "build": {
-    "appId": "com.screenrecord.app",
-    "productName": "Screen Record",
-    "directories": {
-      "output": "release"
-    },
-    "files": [
-      "dist/**/*",
-      "dist-electron/**/*",
-      "resources/**/*"
-    ],
-    "extraResources": [
-      {
-        "from": "native/sck-record/.build/release/sck-record",
-        "to": "sck-record"
-      }
-    ],
-    "mac": {
-      "category": "public.app-category.video",
-      "target": [
-        "dir",
-        "dmg",
-        "zip"
-      ],
-      "hardenedRuntime": true,
-      "entitlements": "build/entitlements.mac.plist",
-      "entitlementsInherit": "build/entitlements.mac.plist",
-      "extendInfo": {
-        "NSScreenCaptureUsageDescription": "Screen Record captures the screen so it can be saved to a video file when you start a recording.",
-        "NSMicrophoneUsageDescription": "Screen Record uses the microphone when your recording includes system or device audio."
-      }
-    }
+    "dev:desktop": "npm run dev -w screen-record",
+    "dev:web": "npm run dev -w screen-record-web",
+    "build:desktop": "npm run build -w screen-record",
+    "build:web": "npm run build -w screen-record-web"
   }
 }

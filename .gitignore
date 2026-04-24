@@ -1,4 +1,5 @@
 native/sck-record/.build
+apps/desktop/native/sck-record/.build
 node_modules
 dist
 dist-electron
