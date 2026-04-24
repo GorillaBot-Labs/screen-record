@@ -58,9 +58,21 @@ function sortByIndex(devices: AvfoundationDevice[]): AvfoundationDevice[] {
   return [...devices].sort((a, b) => a.index - b.index)
 }
 
-function delay(ms: number): Promise<void> {
+/** Resolves when `ms` elapses or `shouldSkip()` becomes true (checked every ~50ms). */
+function waitSkippable(ms: number, shouldSkip: () => boolean): Promise<void> {
+  const step = 50
+  let elapsed = 0
   return new Promise((resolve) => {
-    setTimeout(resolve, ms)
+    function tick() {
+      if (shouldSkip() || elapsed >= ms) {
+        resolve()
+        return
+      }
+      const chunk = Math.min(step, ms - elapsed)
+      elapsed += chunk
+      setTimeout(tick, chunk)
+    }
+    tick()
   })
 }
 
@@ -83,6 +95,7 @@ export default function App() {
   const [shareError, setShareError] = useState<string | null>(null)
   /** 3 → 2 → 1 fullscreen overlay before recording; `null` when hidden. */
   const [countdown, setCountdown] = useState<number | null>(null)
+  const countdownSkipRequestedRef = useRef(false)
   const logRef = useRef<string>('')
   const outputPathRef = useRef<string | null>(null)
   outputPathRef.current = outputPath
@@ -182,9 +195,35 @@ export default function App() {
     persistIndex(AUDIO_INDEX_STORAGE_KEY, index)
   }
 
-  async function handleStart() {
+  const handleStart = useCallback(async () => {
     const api = window.electronAPI
-    if (!api || videoIndex == null || audioIndex == null) return
+    if (!api) return
+
+    if (recording) {
+      setStatus('Already recording.')
+      return
+    }
+    if (countdown !== null) {
+      setStatus('Countdown already in progress.')
+      return
+    }
+    if (devicesLoading) {
+      setStatus('Still loading devices; try again in a moment.')
+      return
+    }
+    if (devicesError != null) {
+      setStatus(`Cannot start: ${devicesError}`)
+      return
+    }
+    if (videoDevices.length === 0 || audioDevices.length === 0) {
+      setStatus('No capture devices available.')
+      return
+    }
+    if (videoIndex == null || audioIndex == null) {
+      setStatus('Choose video and audio devices in the app first.')
+      return
+    }
+
     setFinderHint(null)
 
     setCountdown(3)
@@ -200,13 +239,27 @@ export default function App() {
       setStatus(`Could not minimize window: ${minRes.error}`)
     }
 
-    await delay(1000)
-    setCountdown(2)
-    await api.overlay.setValue(2)
-    await delay(1000)
-    setCountdown(1)
-    await api.overlay.setValue(1)
-    await delay(1000)
+    countdownSkipRequestedRef.current = false
+    const offSkip = api.onCountdownSkip(() => {
+      countdownSkipRequestedRef.current = true
+    })
+    const shouldSkip = () => countdownSkipRequestedRef.current
+
+    try {
+      let shown = 3
+      while (shown > 0) {
+        await waitSkippable(1000, shouldSkip)
+        if (shouldSkip()) break
+        shown -= 1
+        if (shown > 0) {
+          setCountdown(shown)
+          await api.overlay.setValue(shown)
+        }
+      }
+    } finally {
+      offSkip()
+    }
+
     await api.overlay.close()
     setCountdown(null)
 
@@ -225,7 +278,27 @@ export default function App() {
     } else {
       setStatus(`Start failed: ${res.error}`)
     }
-  }
+  }, [
+    audioDevices.length,
+    audioIndex,
+    countdown,
+    devicesError,
+    devicesLoading,
+    recording,
+    videoDevices.length,
+    videoIndex,
+  ])
+
+  useEffect(() => {
+    const api = window.electronAPI
+    if (!api?.onTrayStartRecordingRequest) return
+    const off = api.onTrayStartRecordingRequest(() => {
+      void handleStart()
+    })
+    return () => {
+      off()
+    }
+  }, [handleStart])
 
   async function handleStop() {
     const api = window.electronAPI

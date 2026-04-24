@@ -4,7 +4,11 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { spawn, execFileSync, type ChildProcess } from 'node:child_process'
 import { app, BrowserWindow, clipboard, ipcMain, shell, Tray, Menu, nativeImage } from 'electron'
-import { destroyCountdownOverlay, registerCountdownOverlayIpc } from './countdown-overlay'
+import {
+  destroyCountdownOverlay,
+  registerCountdownOverlayIpc,
+  setOverlaySkipNotifyTarget,
+} from './countdown-overlay'
 import { uploadRecordingToGcs } from './gcs-upload'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -86,6 +90,24 @@ function createTray() {
   updateTrayMenu()
 }
 
+function sendTrayStartRecordingToRenderer() {
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    createWindow()
+  }
+  const win = mainWindow
+  if (!win || win.isDestroyed()) return
+  const send = () => {
+    if (!win.isDestroyed()) {
+      win.webContents.send('recording:tray-start-request')
+    }
+  }
+  if (win.webContents.isLoading()) {
+    win.webContents.once('did-finish-load', send)
+  } else {
+    send()
+  }
+}
+
 function updateTrayMenu() {
   if (!tray) return
   const recording = Boolean(ffmpegChild && !ffmpegChild.killed)
@@ -98,6 +120,13 @@ function updateTrayMenu() {
         },
       },
       { type: 'separator' },
+      {
+        label: 'Start Recording',
+        enabled: !recording,
+        click: () => {
+          void sendTrayStartRecordingToRenderer()
+        },
+      },
       {
         label: 'Stop Recording',
         enabled: recording,
@@ -140,9 +169,12 @@ function createWindow() {
   })
 
   mainWindow.on('closed', () => {
+    setOverlaySkipNotifyTarget(null)
     mainWindow = null
     destroyCountdownOverlay()
   })
+
+  setOverlaySkipNotifyTarget(mainWindow)
 
   if (viteDevServerUrl) {
     mainWindow.loadURL(viteDevServerUrl)

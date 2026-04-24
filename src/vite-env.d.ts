@@ -24,6 +24,8 @@ declare global {
       onRecordingStderr: (callback: (chunk: string) => void) => () => void
       onRecordingEnded: (callback: (payload: RecordingEndedPayload) => void) => () => void
       onRecordingGcsUpload: (callback: (payload: RecordingGcsUploadPayload) => void) => () => void
+      onCountdownSkip: (callback: () => void) => () => void
+      onTrayStartRecordingRequest: (callback: () => void) => () => void
     }
   }
 }

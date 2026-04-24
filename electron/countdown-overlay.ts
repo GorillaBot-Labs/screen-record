@@ -11,8 +11,14 @@ let paths: CountdownOverlayPaths | null = null
 let overlayWindow: BrowserWindow | null = null
 /** Consumed by the `overlay:pull-initial` handler after the overlay page loads. */
 let overlayPendingInitial: number | null = null
+/** Main app window that owns the countdown loop; receives `countdown:skip`. */
+let overlaySkipNotifyTarget: BrowserWindow | null = null
 
 let ipcRegistered = false
+
+export function setOverlaySkipNotifyTarget(win: BrowserWindow | null): void {
+  overlaySkipNotifyTarget = win
+}
 
 function unionDisplayBounds(): Electron.Rectangle {
   const displays = screen.getAllDisplays()
@@ -67,7 +73,7 @@ function createOverlayWindow(): Promise<void> {
       closable: false,
       show: false,
       skipTaskbar: true,
-      focusable: false,
+      focusable: true,
       hasShadow: false,
       fullscreen: false,
       fullscreenable: false,
@@ -160,6 +166,16 @@ export function registerCountdownOverlayIpc(p: CountdownOverlayPaths): void {
 
   ipcMain.handle('overlay:close', () => {
     destroyOverlayWindow()
+  })
+
+  ipcMain.on('overlay:skip-request', (event) => {
+    if (!overlayWindow || overlayWindow.isDestroyed() || event.sender !== overlayWindow.webContents) {
+      return
+    }
+    const target = overlaySkipNotifyTarget
+    if (target && !target.isDestroyed()) {
+      target.webContents.send('countdown:skip')
+    }
   })
 }
 

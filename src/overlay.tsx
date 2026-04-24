@@ -27,6 +27,10 @@ function OverlayApp() {
     return <div className="countdown-overlay" aria-hidden />
   }
 
+  function handleSkip() {
+    window.electronAPI?.overlay?.requestSkip?.()
+  }
+
   return (
     <div
       className="countdown-overlay"
@@ -46,6 +50,9 @@ function OverlayApp() {
       >
         {value}
       </p>
+      <button type="button" className="countdown-overlay-skip" onClick={handleSkip}>
+        Skip — start now
+      </button>
     </div>
   )
 }
