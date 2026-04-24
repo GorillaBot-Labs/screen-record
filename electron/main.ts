@@ -2,7 +2,7 @@ import { existsSync, mkdirSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { spawn, execFileSync, type ChildProcess } from 'node:child_process'
-import { app, BrowserWindow, ipcMain, shell } from 'electron'
+import { app, BrowserWindow, ipcMain, shell, Tray, Menu, nativeImage } from 'electron'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -13,6 +13,7 @@ const viteDevServerUrl = process.env.VITE_DEV_SERVER_URL
 const rendererDist = path.join(appRoot, 'dist')
 
 let mainWindow: BrowserWindow | null = null
+let tray: Tray | null = null
 
 /** Default AVFoundation input string `<video>:<audio>` (see plan). */
 const DEFAULT_AVFOUNDATION_INPUT = '3:1'
@@ -42,6 +43,73 @@ function defaultOutputPath(): string {
   return path.join(recordingsDir(), `recording_${stamp}.mp4`)
 }
 
+function trayIconImage(): Electron.NativeImage {
+  const iconPath = path.join(app.getAppPath(), 'resources', 'trayTemplate.png')
+  if (existsSync(iconPath)) {
+    const img = nativeImage.createFromPath(iconPath)
+    if (process.platform === 'darwin') {
+      img.setTemplateImage(true)
+    }
+    return img
+  }
+  const empty = nativeImage.createEmpty()
+  return empty
+}
+
+function createTray() {
+  if (tray) return
+  const icon = trayIconImage()
+  if (icon.isEmpty()) {
+    console.warn('Tray icon missing at resources/trayTemplate.png; menu bar item not created.')
+    return
+  }
+  tray = new Tray(icon)
+  tray.setToolTip('Screen Record')
+  updateTrayMenu()
+}
+
+function updateTrayMenu() {
+  if (!tray) return
+  const recording = Boolean(ffmpegChild && !ffmpegChild.killed)
+  tray.setContextMenu(
+    Menu.buildFromTemplate([
+      {
+        label: 'Open Screen Record',
+        click: () => {
+          showMainWindow()
+        },
+      },
+      { type: 'separator' },
+      {
+        label: 'Stop Recording',
+        enabled: recording,
+        click: () => {
+          void stopRecordingChild()
+        },
+      },
+      { type: 'separator' },
+      {
+        label: 'Quit',
+        click: () => {
+          app.quit()
+        },
+      },
+    ]),
+  )
+}
+
+function showMainWindow() {
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    createWindow()
+    return
+  }
+  if (mainWindow.isMinimized()) {
+    mainWindow.restore()
+  }
+  mainWindow.show()
+  mainWindow.focus()
+}
+
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: 900,
@@ -53,6 +121,10 @@ function createWindow() {
     },
   })
 
+  mainWindow.on('closed', () => {
+    mainWindow = null
+  })
+
   if (viteDevServerUrl) {
     mainWindow.loadURL(viteDevServerUrl)
   } else {
@@ -61,7 +133,23 @@ function createWindow() {
 }
 
 function forwardStderrToRenderer(sender: Electron.WebContents, chunk: Buffer | string) {
+  if (sender.isDestroyed()) return
   sender.send('recording:stderr', typeof chunk === 'string' ? chunk : chunk.toString())
+}
+
+function forwardRecordingEnded(sender: Electron.WebContents, payload: { code: number | null; signal: NodeJS.Signals | null }) {
+  if (sender.isDestroyed()) return
+  sender.send('recording:ended', payload)
+}
+
+/** Sends SIGINT to ffmpeg; used from IPC and the menu bar tray. */
+function stopRecordingChild(): { ok: true } | { ok: false; error: string } {
+  const child = ffmpegChild
+  if (!child || child.killed) {
+    return { ok: false, error: 'Not recording.' }
+  }
+  child.kill('SIGINT')
+  return { ok: true }
 }
 
 type AvfoundationDevice = { index: number; name: string }
@@ -223,15 +311,21 @@ ipcMain.handle(
         ffmpegChild = null
       }
       forwardStderrToRenderer(sender, `ffmpeg process error: ${err.message}\n`)
+      updateTrayMenu()
     })
 
     child.on('close', (code, signal) => {
       if (ffmpegChild === child) {
         ffmpegChild = null
       }
-      sender.send('recording:ended', { code, signal })
+      if (existsSync(outputPath)) {
+        shell.showItemInFolder(outputPath)
+      }
+      forwardRecordingEnded(sender, { code, signal })
+      updateTrayMenu()
     })
 
+    updateTrayMenu()
     return { ok: true, outputPath }
   })
 
@@ -244,13 +338,11 @@ ipcMain.handle('window:minimize', (): { ok: true } | { ok: false; error: string 
 })
 
 ipcMain.handle('recording:stop', async (): Promise<{ ok: true } | { ok: false; error: string }> => {
-  const child = ffmpegChild
-  if (!child || child.killed) {
-    return { ok: false, error: 'Not recording.' }
+  const res = stopRecordingChild()
+  if (res.ok) {
+    updateTrayMenu()
   }
-
-  child.kill('SIGINT')
-  return { ok: true }
+  return res
 })
 
 function isPathInsideRecordingsDir(filePath: string): boolean {
@@ -285,6 +377,7 @@ function stopRecordingOnQuit() {
 
 app.whenReady().then(() => {
   createWindow()
+  createTray()
 })
 
 app.on('before-quit', stopRecordingOnQuit)
@@ -296,7 +389,5 @@ app.on('window-all-closed', () => {
 })
 
 app.on('activate', () => {
-  if (BrowserWindow.getAllWindows().length === 0) {
-    createWindow()
-  }
+  showMainWindow()
 })

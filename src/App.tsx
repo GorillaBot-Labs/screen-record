@@ -163,17 +163,17 @@ export default function App() {
     setFinderHint(null)
 
     setCountdown(3)
+    const minRes = await api.minimizeWindow()
+    if (!minRes.ok) {
+      setStatus(`Could not minimize window: ${minRes.error}`)
+    }
+
     await delay(1000)
     setCountdown(2)
     await delay(1000)
     setCountdown(1)
     await delay(1000)
     setCountdown(null)
-
-    const minRes = await api.minimizeWindow()
-    if (!minRes.ok) {
-      setStatus(`Could not minimize window: ${minRes.error}`)
-    }
 
     logRef.current = ''
     setLog('')
@@ -299,6 +299,12 @@ export default function App() {
           Stop
         </button>
       </p>
+      {hasBridge ? (
+        <p className="hint">
+          After the window minimizes, click the Screen Record icon in the menu bar (macOS) or system tray to
+          reopen the app or stop the recording.
+        </p>
+      ) : null}
 
       <section className="path-block" aria-label="Output file">
         <h2 className="path-heading">Output file</h2>
