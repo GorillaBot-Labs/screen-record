@@ -160,9 +160,9 @@ code {
   align-items: center;
   justify-content: center;
   gap: 1.5rem;
-  background: rgba(10, 12, 16, 0.82);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
+  background: rgba(10, 12, 16, 0.62);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
 }
 
 .countdown-overlay-label {

@@ -1,0 +1,14 @@
+/* Overlay runs in its own transparent BrowserWindow; override main app chrome from index.css. */
+:root {
+  background: transparent;
+}
+
+html,
+body {
+  background: transparent;
+}
+
+#root {
+  min-height: 100vh;
+  background: transparent;
+}

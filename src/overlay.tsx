@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 
 import './index.css'
+import './overlay.css'
 
 function OverlayApp() {
   const [value, setValue] = useState<number | null>(null)

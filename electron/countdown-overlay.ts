@@ -59,7 +59,7 @@ function createOverlayWindow(): Promise<void> {
       width: bounds.width,
       height: bounds.height,
       frame: false,
-      transparent: false,
+      transparent: true,
       resizable: false,
       movable: false,
       minimizable: false,
@@ -71,7 +71,7 @@ function createOverlayWindow(): Promise<void> {
       hasShadow: false,
       fullscreen: false,
       fullscreenable: false,
-      backgroundColor: '#0a0c10',
+      backgroundColor: '#00000000',
       webPreferences: {
         preload: preloadPath,
         contextIsolation: true,
