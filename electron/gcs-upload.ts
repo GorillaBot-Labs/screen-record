@@ -1,18 +1,25 @@
 import { basename } from 'node:path'
 import { Storage } from '@google-cloud/storage'
 
+/** Object key prefix inside the bucket (e.g. `recordings/recording_….mp4`). */
+const GCS_OBJECT_PREFIX = 'recordings'
+
 /**
- * Upload finished recordings to Google Cloud Storage.
+ * Upload finished recordings to Google Cloud Storage and return the canonical **public** HTTPS URL.
+ *
+ * **Uniform bucket-level access:** configure the bucket **once** in Google Cloud (Console or
+ * Terraform), not in this app on every upload:
+ *
+ * 1. Bucket → **Permissions** → **Grant access** → Principal **`allUsers`** → role **Storage Object
+ *    Viewer** (`roles/storage.objectViewer`).
+ * 2. If **Public Access Prevention** is enforced on the bucket, turn it off for public links (or
+ *    use a dedicated bucket).
+ * 3. Your upload **service account** only needs to **create objects** (e.g. **Storage Object
+ *    Creator** on the bucket)—not `setIamPolicy`.
  *
  * Configure:
- * - `GCS_BUCKET` — bucket name (required).
- * - `GCS_OBJECT_PREFIX` — optional object key prefix (default `recordings`).
- * - `GCS_SIGNED_URL_DAYS` — read URL lifetime in days (default `90`).
- * - Auth: `GOOGLE_APPLICATION_CREDENTIALS` (path to service account JSON), or
- *   Application Default Credentials (`gcloud auth application-default login`).
- *
- * The service account needs `storage.objects.create` on the bucket. Signed URLs
- * require permission to sign (the key in the JSON account is used for v4 URLs).
+ * - `GCS_BUCKET` — bucket name (required; main sets a default from packaged vs dev if unset).
+ * - Auth: main sets `GOOGLE_APPLICATION_CREDENTIALS` to `~/.screen-record/gcp-credentials.json`.
  */
 export async function uploadRecordingToGcs(
   localPath: string,
@@ -26,15 +33,12 @@ export async function uploadRecordingToGcs(
     }
   }
 
-  const prefix = (process.env.GCS_OBJECT_PREFIX?.trim() || 'recordings').replace(/^\/+|\/+$/g, '')
-  const objectName = `${prefix}/${basename(localPath)}`
-  const daysRaw = process.env.GCS_SIGNED_URL_DAYS?.trim()
-  const days = daysRaw != null && daysRaw !== '' ? Number.parseInt(daysRaw, 10) : 90
-  const signedDays = Number.isFinite(days) && days > 0 ? days : 90
+  const objectName = `${GCS_OBJECT_PREFIX}/${basename(localPath)}`
 
   try {
     const storage = new Storage()
     const bucket = storage.bucket(bucketName)
+
     await bucket.upload(localPath, {
       destination: objectName,
       metadata: {
@@ -44,12 +48,7 @@ export async function uploadRecordingToGcs(
     })
 
     const file = bucket.file(objectName)
-    const expires = Date.now() + signedDays * 24 * 60 * 60 * 1000
-    const [url] = await file.getSignedUrl({
-      version: 'v4',
-      action: 'read',
-      expires,
-    })
+    const url = file.publicUrl()
 
     return { ok: true, url }
   } catch (e) {

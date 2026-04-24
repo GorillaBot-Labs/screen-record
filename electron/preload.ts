@@ -15,7 +15,7 @@ export type RevealInFinderResult = { ok: true } | { ok: false; error: string }
 export type RecordingEndedPayload = { code: number | null; signal: NodeJS.Signals | null }
 
 export type RecordingGcsUploadPayload =
-  | { ok: true; url: string; outputPath: string }
+  | { ok: true; url: string; outputPath: string; localFileDeleted?: boolean }
   | { ok: false; error: string; outputPath: string }
 
 export type AvfoundationDevice = { index: number; name: string }

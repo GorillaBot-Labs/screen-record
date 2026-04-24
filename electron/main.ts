@@ -1,8 +1,8 @@
-import { existsSync, mkdirSync } from 'node:fs'
+import { existsSync, mkdirSync, unlinkSync } from 'node:fs'
+import { homedir, tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { spawn, execFileSync, type ChildProcess } from 'node:child_process'
-import dotenv from 'dotenv'
 import { app, BrowserWindow, clipboard, ipcMain, shell, Tray, Menu, nativeImage } from 'electron'
 import { destroyCountdownOverlay, registerCountdownOverlayIpc } from './countdown-overlay'
 import { uploadRecordingToGcs } from './gcs-upload'
@@ -12,14 +12,13 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const appRoot = path.join(__dirname, '..')
 process.env.APP_ROOT = appRoot
 
-// Repo `.env` for local dev; optional `userData/.env` overrides (useful for installed builds).
-dotenv.config({ path: path.join(appRoot, '.env') })
-dotenv.config({ path: path.join(app.getPath('userData'), '.env'), override: true })
-
-// Default bucket by run mode if unset (repo `.env` is not shipped in the DMG; see `.env.example`).
+// Default bucket by run mode if unset (override anytime with `GCS_BUCKET` in the process environment).
 if (!process.env.GCS_BUCKET?.trim()) {
   process.env.GCS_BUCKET = app.isPackaged ? 'screen-record' : 'screen-record-dev'
 }
+
+// GCP service account JSON — fixed path under home; create `~/.screen-record/` and drop `gcp-credentials.json` there.
+process.env.GOOGLE_APPLICATION_CREDENTIALS = path.join(homedir(), '.screen-record', 'gcp-credentials.json')
 
 const viteDevServerUrl = process.env.VITE_DEV_SERVER_URL
 const rendererDist = path.join(appRoot, 'dist')
@@ -52,13 +51,14 @@ function resolveFfmpegPath(): string | null {
   return null
 }
 
-function recordingsDir(): string {
-  return path.join(app.getPath('home'), 'Movies', 'recordings')
+/** Temp staging dir for ffmpeg output; file is removed after a successful GCS upload. */
+function recordingStagingDir(): string {
+  return path.join(tmpdir(), 'screen-record')
 }
 
 function defaultOutputPath(): string {
   const stamp = new Date().toISOString().replaceAll(':', '-').replaceAll('.', '-')
-  return path.join(recordingsDir(), `recording_${stamp}.mp4`)
+  return path.join(recordingStagingDir(), `recording_${stamp}.mp4`)
 }
 
 function trayIconImage(): Electron.NativeImage {
@@ -287,10 +287,10 @@ ipcMain.handle(
     const outputPath = defaultOutputPath()
 
     try {
-      mkdirSync(recordingsDir(), { recursive: true })
+      mkdirSync(recordingStagingDir(), { recursive: true })
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e)
-      return { ok: false, error: `Could not create output directory: ${msg}` }
+      return { ok: false, error: `Could not create temp recording directory: ${msg}` }
     }
 
     const args = [
@@ -331,6 +331,7 @@ ipcMain.handle(
       }
       forwardStderrToRenderer(sender, `ffmpeg process error: ${err.message}\n`)
       updateTrayMenu()
+      showMainWindow()
     })
 
     child.on('close', (code, signal) => {
@@ -339,6 +340,7 @@ ipcMain.handle(
       }
       forwardRecordingEnded(sender, { code, signal })
       updateTrayMenu()
+      showMainWindow()
 
       void (async () => {
         if (!existsSync(outputPath)) {
@@ -353,13 +355,22 @@ ipcMain.handle(
         }
         const result = await uploadRecordingToGcs(outputPath)
         if (sender.isDestroyed()) return
+        let localFileDeleted = false
         if (result.ok) {
           clipboard.writeText(result.url)
+          try {
+            unlinkSync(outputPath)
+            localFileDeleted = true
+          } catch {
+            /* temp file may already be gone; upload succeeded */
+          }
         }
         sender.send('recording:gcs-upload', {
           ok: result.ok,
           outputPath,
-          ...(result.ok ? { url: result.url } : { error: result.error }),
+          ...(result.ok
+            ? { url: result.url, ...(localFileDeleted ? { localFileDeleted: true as const } : {}) }
+            : { error: result.error }),
         })
       })()
     })
@@ -384,9 +395,9 @@ ipcMain.handle('recording:stop', async (): Promise<{ ok: true } | { ok: false; e
   return res
 })
 
-function isPathInsideRecordingsDir(filePath: string): boolean {
+function isPathInsideRecordingStagingDir(filePath: string): boolean {
   const abs = path.resolve(filePath)
-  const root = path.resolve(recordingsDir())
+  const root = path.resolve(recordingStagingDir())
   return abs === root || abs.startsWith(root + path.sep)
 }
 
@@ -397,8 +408,8 @@ ipcMain.handle(
       return { ok: false, error: 'Invalid path.' }
     }
     const abs = path.resolve(filePath.trim())
-    if (!isPathInsideRecordingsDir(abs)) {
-      return { ok: false, error: 'Path must be inside your Movies/recordings folder.' }
+    if (!isPathInsideRecordingStagingDir(abs)) {
+      return { ok: false, error: 'Path must be inside the app temp recording folder.' }
     }
     if (!existsSync(abs)) {
       return { ok: false, error: 'File or folder not found.' }

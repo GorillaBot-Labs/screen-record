@@ -155,10 +155,13 @@ export default function App() {
         setShareUrl(p.url)
         setShareError(null)
         setStatus('Recording uploaded. Share link copied to the clipboard.')
+        if (p.localFileDeleted) {
+          setOutputPath(null)
+        }
       } else {
         setShareUrl(null)
         setShareError(p.error)
-        setStatus('Recording saved locally, but cloud upload failed.')
+        setStatus('Temp recording file kept on disk; cloud upload failed.')
       }
     })
 
@@ -350,10 +353,13 @@ export default function App() {
         </p>
       ) : null}
 
-      <section className="path-block" aria-label="Output file">
-        <h2 className="path-heading">Output file</h2>
+      <section className="path-block" aria-label="Local recording file">
+        <h2 className="path-heading">Local staging file</h2>
         {outputPath ? (
           <>
+            <p className="hint">
+              Temporary path while recording or if cloud upload fails; removed after a successful upload.
+            </p>
             <p className="path-line">
               <code>{outputPath}</code>
             </p>
@@ -365,7 +371,10 @@ export default function App() {
             {finderHint ? <p className="hint warn">{finderHint}</p> : null}
           </>
         ) : (
-          <p className="muted path-placeholder">Start a recording to see the destination path.</p>
+          <p className="muted path-placeholder">
+            While recording, ffmpeg writes to a temp file under your system temp directory, then the app uploads
+            it to Google Cloud.
+          </p>
         )}
       </section>
 
@@ -389,7 +398,7 @@ export default function App() {
           </>
         ) : !cloudUploading && !shareError ? (
           <p className="muted path-placeholder">
-            When a recording finishes, the app uploads it to your GCS bucket and shows a read-only link here.
+            When a recording finishes, the app uploads it to your GCS bucket and shows a public link here.
           </p>
         ) : null}
       </section>
