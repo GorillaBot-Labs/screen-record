@@ -58,6 +58,30 @@ function sortByIndex(devices: AvfoundationDevice[]): AvfoundationDevice[] {
   return [...devices].sort((a, b) => a.index - b.index)
 }
 
+function statusToneClass(params: {
+  recording: boolean
+  cloudUploading: boolean
+  devicesError: string | null
+  shareError: string | null
+  status: string
+}): string {
+  const { recording, cloudUploading, devicesError, shareError, status } = params
+  if (recording) return 'app-status app-status--recording'
+  if (cloudUploading) return 'app-status app-status--busy'
+  if (devicesError != null || shareError != null) return 'app-status app-status--error'
+  const s = status.toLowerCase()
+  if (s.includes('failed') || s.includes('could not') || s.includes('cannot start')) {
+    return 'app-status app-status--error'
+  }
+  if (s.includes('uploaded') || s.includes('clipboard')) {
+    return 'app-status app-status--success'
+  }
+  if (s.includes('uploading') || s.includes('starting…') || s.includes('finalize')) {
+    return 'app-status app-status--busy'
+  }
+  return 'app-status'
+}
+
 export default function App() {
   const [ffmpegInfo, setFfmpegInfo] = useState<string>('…')
   const [log, setLog] = useState<string>('')
@@ -321,164 +345,219 @@ export default function App() {
     audioDevices.length > 0
 
   const uiLockedForCountdown = countdown !== null
+  const statusClass = statusToneClass({
+    recording,
+    cloudUploading,
+    devicesError,
+    shareError,
+    status,
+  })
 
   return (
     <>
-    <main>
-      <h1>Screen Record</h1>
-      <p className="muted">ffmpeg: {ffmpegInfo}</p>
+      <div className="app">
+        <div className="app-container">
+          <header className="app-header">
+            <div className="app-brand">
+              <span className="app-mark" aria-hidden />
+              <div>
+                <h1>Screen Record</h1>
+                <p className="app-tagline">Screen and microphone capture, then upload to get a shareable link.</p>
+              </div>
+            </div>
+            {!hasBridge ? (
+              <p className="app-banner" role="status">
+                Open this app in Electron to record. The web preview has no system bridge.
+              </p>
+            ) : null}
+            <p className={statusClass} role="status" aria-live="polite">
+              {status}
+            </p>
+          </header>
 
-      <div className="field">
-        <div className="field-header">
-          <span id="capture-devices-label" className="field-label">
-            Capture devices
-          </span>
-          <button
-            type="button"
-            className="linkish"
-            onClick={() => void refreshDevices()}
-            disabled={!hasBridge || recording || devicesLoading || uiLockedForCountdown}
-          >
-            Refresh
-          </button>
+          <section className="app-card" aria-labelledby="capture-heading">
+            <div className="app-card-header">
+              <h2 id="capture-heading" className="app-card-title">
+                Capture
+              </h2>
+              <button
+                type="button"
+                className="btn btn-ghost"
+                onClick={() => void refreshDevices()}
+                disabled={!hasBridge || recording || devicesLoading || uiLockedForCountdown}
+              >
+                Refresh devices
+              </button>
+            </div>
+            <div className="app-card-body">
+              {devicesLoading ? <p className="hint">Loading devices…</p> : null}
+              {devicesError ? <p className="hint warn">{devicesError}</p> : null}
+              {!devicesLoading && !devicesError ? (
+                <div className="device-grid">
+                  <div>
+                    <div className="field-label-row">
+                      <label htmlFor="av-video" className="sub-label">
+                        Video
+                      </label>
+                    </div>
+                    <select
+                      id="av-video"
+                      className="app-select"
+                      value={videoIndex ?? ''}
+                      onChange={(e) => handleVideoChange(Number.parseInt(e.target.value, 10))}
+                      disabled={!hasBridge || recording || uiLockedForCountdown || videoDevices.length === 0}
+                      aria-labelledby="capture-heading"
+                    >
+                      {videoDevices.map((d) => (
+                        <option key={d.index} value={d.index}>
+                          [{d.index}] {d.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <div className="field-label-row">
+                      <label htmlFor="av-audio" className="sub-label">
+                        Audio
+                      </label>
+                    </div>
+                    <select
+                      id="av-audio"
+                      className="app-select"
+                      value={audioIndex ?? ''}
+                      onChange={(e) => handleAudioChange(Number.parseInt(e.target.value, 10))}
+                      disabled={!hasBridge || recording || uiLockedForCountdown || audioDevices.length === 0}
+                      aria-labelledby="capture-heading"
+                    >
+                      {audioDevices.map((d) => (
+                        <option key={d.index} value={d.index}>
+                          [{d.index}] {d.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+              ) : null}
+            </div>
+          </section>
+
+          <div className="app-actions">
+            <button type="button" className="btn btn-primary" onClick={() => void handleStart()} disabled={!canRecord}>
+              Start recording
+            </button>
+            <button
+              type="button"
+              className="btn btn-danger"
+              onClick={() => void handleStop()}
+              disabled={!hasBridge || !recording}
+            >
+              Stop
+            </button>
+            {hasBridge ? (
+              <p className="app-actions-hint">
+                After you start, the window minimizes. Use the menu bar (macOS) or system tray icon to open the app
+                or stop recording.
+              </p>
+            ) : null}
+          </div>
+
+          <section className="app-card" aria-label="Recording output">
+            <div className="app-card-header">
+              <h2 className="app-card-title">After recording</h2>
+            </div>
+            <div className="output-stack">
+              <div className="output-block">
+                <h3>Local file</h3>
+                {outputPath ? (
+                  <>
+                    <p className="hint hint-flush">
+                      Temp path while recording or if upload fails; removed after a successful upload.
+                    </p>
+                    <p className="path-line">
+                      <code>{outputPath}</code>
+                    </p>
+                    <div className="inline-actions">
+                      <button type="button" className="btn btn-outline" onClick={() => void handleRevealInFinder()}>
+                        Show in Finder
+                      </button>
+                    </div>
+                    {finderHint ? <p className="hint warn">{finderHint}</p> : null}
+                  </>
+                ) : (
+                  <p className="path-placeholder">
+                    While recording, output is written under your temp folder, then uploaded to Google Cloud.
+                  </p>
+                )}
+              </div>
+              <div className="output-block">
+                <h3>Share link</h3>
+                {cloudUploading ? <p className="hint">Uploading to Google Cloud…</p> : null}
+                {shareError ? <p className="hint warn">{shareError}</p> : null}
+                {shareUrl ? (
+                  <>
+                    <p className="hint hint-flush">
+                      The link was copied when upload finished. You can copy it again below.
+                    </p>
+                    <p className="path-line">
+                      <code className="share-url">{shareUrl}</code>
+                    </p>
+                    <div className="inline-actions">
+                      <button type="button" className="btn btn-outline" onClick={() => void handleCopyShareLink()}>
+                        Copy link
+                      </button>
+                    </div>
+                  </>
+                ) : !cloudUploading && !shareError ? (
+                  <p className="path-placeholder">When a recording ends, a public link from your GCS bucket appears here.</p>
+                ) : null}
+              </div>
+            </div>
+          </section>
+
+          <details className="app-details">
+            <summary>Technical details</summary>
+            <div className="app-details-body">
+              <p>
+                <strong>ffmpeg</strong> — <code>{ffmpegInfo}</code>
+              </p>
+              <p>
+                Device lists come from{' '}
+                <code>ffmpeg -f avfoundation -list_devices true -i &quot;&quot;</code>. Defaults prefer screen index{' '}
+                <code>3</code> and microphone index <code>1</code> when present.
+              </p>
+            </div>
+          </details>
+
+          <details className="app-details">
+            <summary>ffmpeg log</summary>
+            <div className="app-details-body">
+              <pre className="log">{log || '—'}</pre>
+            </div>
+          </details>
         </div>
-        {devicesLoading ? <p className="hint">Loading devices…</p> : null}
-        {devicesError ? <p className="hint warn">{devicesError}</p> : null}
-        {!devicesLoading && !devicesError ? (
-          <>
-            <label htmlFor="av-video" className="sub-label">
-              Video (screen or camera)
-            </label>
-            <select
-              id="av-video"
-              value={videoIndex ?? ''}
-              onChange={(e) => handleVideoChange(Number.parseInt(e.target.value, 10))}
-              disabled={!hasBridge || recording || uiLockedForCountdown || videoDevices.length === 0}
-              aria-labelledby="capture-devices-label"
-            >
-              {videoDevices.map((d) => (
-                <option key={d.index} value={d.index}>
-                  [{d.index}] {d.name}
-                </option>
-              ))}
-            </select>
-
-            <label htmlFor="av-audio" className="sub-label">
-              Audio (microphone)
-            </label>
-            <select
-              id="av-audio"
-              value={audioIndex ?? ''}
-              onChange={(e) => handleAudioChange(Number.parseInt(e.target.value, 10))}
-              disabled={!hasBridge || recording || uiLockedForCountdown || audioDevices.length === 0}
-              aria-labelledby="capture-devices-label"
-            >
-              {audioDevices.map((d) => (
-                <option key={d.index} value={d.index}>
-                  [{d.index}] {d.name}
-                </option>
-              ))}
-            </select>
-          </>
-        ) : null}
-        <p id="av-input-hint" className="hint">
-          Options come from <code>ffmpeg -f avfoundation -list_devices true -i &quot;&quot;</code>.
-          Defaults favor screen index <code>3</code> and audio index <code>1</code> when those exist.
-        </p>
       </div>
 
-      <p className="status">{status}</p>
-
-      <p className="actions">
-        <button type="button" onClick={() => void handleStart()} disabled={!canRecord}>
-          Start
-        </button>{' '}
-        <button type="button" onClick={() => void handleStop()} disabled={!hasBridge || !recording}>
-          Stop
-        </button>
-      </p>
-      {hasBridge ? (
-        <p className="hint">
-          After the window minimizes, click the Screen Record icon in the menu bar (macOS) or system tray to
-          reopen the app or stop the recording.
-        </p>
-      ) : null}
-
-      <section className="path-block" aria-label="Local recording file">
-        <h2 className="path-heading">Local staging file</h2>
-        {outputPath ? (
-          <>
-            <p className="hint">
-              Temporary path while recording or if cloud upload fails; removed after a successful upload.
-            </p>
-            <p className="path-line">
-              <code>{outputPath}</code>
-            </p>
-            <p className="actions">
-              <button type="button" onClick={() => void handleRevealInFinder()} disabled={!hasBridge}>
-                Open in Finder
-              </button>
-            </p>
-            {finderHint ? <p className="hint warn">{finderHint}</p> : null}
-          </>
-        ) : (
-          <p className="muted path-placeholder">
-            While recording, ffmpeg writes to a temp file under your system temp directory, then the app uploads
-            it to Google Cloud.
-          </p>
-        )}
-      </section>
-
-      <section className="path-block" aria-label="Cloud share link">
-        <h2 className="path-heading">Share link</h2>
-        {cloudUploading ? <p className="hint">Uploading recording to Google Cloud…</p> : null}
-        {shareError ? <p className="hint warn">{shareError}</p> : null}
-        {shareUrl ? (
-          <>
-            <p className="share-hint hint">
-              Link was copied to your clipboard when the upload finished. You can copy it again below.
-            </p>
-            <p className="path-line">
-              <code className="share-url">{shareUrl}</code>
-            </p>
-            <p className="actions">
-              <button type="button" onClick={() => void handleCopyShareLink()}>
-                Copy link
-              </button>
-            </p>
-          </>
-        ) : !cloudUploading && !shareError ? (
-          <p className="muted path-placeholder">
-            When a recording finishes, the app uploads it to your GCS bucket and shows a public link here.
-          </p>
-        ) : null}
-      </section>
-
-      <h2 className="log-heading">ffmpeg log</h2>
-      <pre className="log">{log || '—'}</pre>
-    </main>
-
-    {countdown !== null && !hasBridge ? (
-      <div
-        className="countdown-overlay"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="countdown-overlay-title"
-        aria-describedby="countdown-overlay-value"
-      >
-        <p id="countdown-overlay-title" className="countdown-overlay-label">
-          Recording starts in…
-        </p>
-        <p
-          id="countdown-overlay-value"
-          key={countdown}
-          className="countdown-overlay-digit"
-          aria-live="assertive"
+      {countdown !== null && !hasBridge ? (
+        <div
+          className="countdown-overlay"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="countdown-overlay-title"
+          aria-describedby="countdown-overlay-value"
         >
-          {countdown}
-        </p>
-      </div>
-    ) : null}
+          <p id="countdown-overlay-title" className="countdown-overlay-label">
+            Recording starts in…
+          </p>
+          <p
+            id="countdown-overlay-value"
+            key={countdown}
+            className="countdown-overlay-digit"
+            aria-live="assertive"
+          >
+            {countdown}
+          </p>
+        </div>
+      ) : null}
     </>
   )
 }
