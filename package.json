@@ -9,7 +9,9 @@
     "build": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.node.json && vite build",
     "start": "electron .",
     "preview": "vite preview",
-    "dist:mac": "npm run build && electron-builder --mac"
+    "dist:mac": "npm run build && electron-builder --mac",
+    "install:mac": "node scripts/install-mac-release.mjs",
+    "dist:mac:install": "npm run dist:mac && npm run install:mac"
   },
   "dependencies": {
     "react": "^19.0.0",

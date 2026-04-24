@@ -2,7 +2,7 @@ import { existsSync, mkdirSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { spawn, execFileSync, type ChildProcess } from 'node:child_process'
-import { app, BrowserWindow, ipcMain, shell, Tray, Menu, nativeImage } from 'electron'
+import { app, BrowserWindow, ipcMain, shell, Tray, Menu, nativeImage, screen } from 'electron'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -13,6 +13,7 @@ const viteDevServerUrl = process.env.VITE_DEV_SERVER_URL
 const rendererDist = path.join(appRoot, 'dist')
 
 let mainWindow: BrowserWindow | null = null
+let overlayWindow: BrowserWindow | null = null
 let tray: Tray | null = null
 
 /** Default AVFoundation input string `<video>:<audio>` (see plan). */
@@ -110,6 +111,103 @@ function showMainWindow() {
   mainWindow.focus()
 }
 
+/** Initial digit for the overlay page; consumed by `overlay:pull-initial`. */
+let overlayPendingInitial: number | null = null
+
+function unionDisplayBounds(): Electron.Rectangle {
+  const displays = screen.getAllDisplays()
+  let minX = Infinity
+  let minY = Infinity
+  let maxX = -Infinity
+  let maxY = -Infinity
+  for (const d of displays) {
+    const { x, y, width, height } = d.bounds
+    minX = Math.min(minX, x)
+    minY = Math.min(minY, y)
+    maxX = Math.max(maxX, x + width)
+    maxY = Math.max(maxY, y + height)
+  }
+  if (!Number.isFinite(minX)) {
+    return screen.getPrimaryDisplay().bounds
+  }
+  return { x: minX, y: minY, width: maxX - minX, height: maxY - minY }
+}
+
+function destroyOverlayWindow() {
+  if (overlayWindow && !overlayWindow.isDestroyed()) {
+    overlayWindow.destroy()
+  }
+  overlayWindow = null
+}
+
+function sendOverlayCountdownValue(value: number) {
+  if (!overlayWindow || overlayWindow.isDestroyed()) return
+  overlayWindow.webContents.send('overlay:value', value)
+}
+
+function createOverlayWindow(): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const bounds = unionDisplayBounds()
+    const win = new BrowserWindow({
+      x: bounds.x,
+      y: bounds.y,
+      width: bounds.width,
+      height: bounds.height,
+      frame: false,
+      transparent: false,
+      resizable: false,
+      movable: false,
+      minimizable: false,
+      maximizable: false,
+      closable: false,
+      show: false,
+      skipTaskbar: true,
+      focusable: false,
+      hasShadow: false,
+      fullscreen: false,
+      fullscreenable: false,
+      backgroundColor: '#0a0c10',
+      webPreferences: {
+        preload: path.join(__dirname, 'preload.mjs'),
+        contextIsolation: true,
+        nodeIntegration: false,
+      },
+    })
+
+    overlayWindow = win
+
+    if (process.platform === 'darwin') {
+      win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
+      win.setAlwaysOnTop(true, 'screen-saver')
+    } else {
+      win.setAlwaysOnTop(true)
+    }
+
+    win.on('closed', () => {
+      if (overlayWindow === win) {
+        overlayWindow = null
+      }
+    })
+
+    win.webContents.once('did-finish-load', () => {
+      resolve()
+    })
+
+    win.webContents.once('did-fail-load', (_event, errorCode, errorDescription) => {
+      if (overlayWindow === win) {
+        destroyOverlayWindow()
+      }
+      reject(new Error(`Overlay did not load (${errorCode}): ${errorDescription}`))
+    })
+
+    if (viteDevServerUrl) {
+      void win.loadURL(`${viteDevServerUrl}/overlay.html`)
+    } else {
+      void win.loadFile(path.join(rendererDist, 'overlay.html'))
+    }
+  })
+}
+
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: 900,
@@ -123,6 +221,7 @@ function createWindow() {
 
   mainWindow.on('closed', () => {
     mainWindow = null
+    destroyOverlayWindow()
   })
 
   if (viteDevServerUrl) {
@@ -337,6 +436,47 @@ ipcMain.handle('window:minimize', (): { ok: true } | { ok: false; error: string 
   return { ok: true }
 })
 
+ipcMain.handle(
+  'overlay:open',
+  async (_event, initial: unknown): Promise<{ ok: true } | { ok: false; error: string }> => {
+    if (typeof initial !== 'number' || !Number.isFinite(initial)) {
+      return { ok: false, error: 'Invalid countdown value.' }
+    }
+    try {
+      destroyOverlayWindow()
+      overlayPendingInitial = initial
+      await createOverlayWindow()
+      return { ok: true }
+    } catch (e) {
+      overlayPendingInitial = null
+      destroyOverlayWindow()
+      const msg = e instanceof Error ? e.message : String(e)
+      return { ok: false, error: msg }
+    }
+  },
+)
+
+ipcMain.handle('overlay:pull-initial', (event): number | null => {
+  if (!overlayWindow || overlayWindow.isDestroyed() || event.sender !== overlayWindow.webContents) {
+    return null
+  }
+  const v = overlayPendingInitial
+  overlayPendingInitial = null
+  if (typeof v === 'number' && !overlayWindow.isDestroyed()) {
+    overlayWindow.show()
+  }
+  return typeof v === 'number' ? v : null
+})
+
+ipcMain.handle('overlay:set', (_event, value: unknown) => {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return
+  sendOverlayCountdownValue(value)
+})
+
+ipcMain.handle('overlay:close', () => {
+  destroyOverlayWindow()
+})
+
 ipcMain.handle('recording:stop', async (): Promise<{ ok: true } | { ok: false; error: string }> => {
   const res = stopRecordingChild()
   if (res.ok) {
@@ -370,6 +510,7 @@ ipcMain.handle(
 )
 
 function stopRecordingOnQuit() {
+  destroyOverlayWindow()
   if (ffmpegChild && !ffmpegChild.killed) {
     ffmpegChild.kill('SIGINT')
   }

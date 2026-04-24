@@ -18,6 +18,14 @@ export default defineConfig(({ command }) => {
         '@': path.join(__dirname, 'src'),
       },
     },
+    build: {
+      rollupOptions: {
+        input: {
+          main: path.join(__dirname, 'index.html'),
+          overlay: path.join(__dirname, 'overlay.html'),
+        },
+      },
+    },
     plugins: [
       react(),
       electron({

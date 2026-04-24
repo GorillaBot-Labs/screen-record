@@ -1,6 +1,7 @@
 /// <reference types="vite/client" />
 
 import type {
+  ElectronOverlayAPI,
   ListAvfoundationDevicesResult,
   RecordingEndedPayload,
   RevealInFinderResult,
@@ -13,6 +14,7 @@ declare global {
   interface Window {
     electronAPI?: {
       minimizeWindow: () => Promise<{ ok: true } | { ok: false; error: string }>
+      overlay: ElectronOverlayAPI
       resolveFfmpegPath: () => Promise<ResolveFfmpegResult>
       listAvfoundationDevices: () => Promise<ListAvfoundationDevicesResult>
       startRecording: (options?: { avfoundationInput?: string }) => Promise<StartRecordingResult>

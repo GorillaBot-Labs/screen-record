@@ -163,6 +163,13 @@ export default function App() {
     setFinderHint(null)
 
     setCountdown(3)
+    const overlayRes = await api.overlay.open(3)
+    if (!overlayRes.ok) {
+      setCountdown(null)
+      setStatus(`Could not open countdown overlay: ${overlayRes.error}`)
+      return
+    }
+
     const minRes = await api.minimizeWindow()
     if (!minRes.ok) {
       setStatus(`Could not minimize window: ${minRes.error}`)
@@ -170,9 +177,12 @@ export default function App() {
 
     await delay(1000)
     setCountdown(2)
+    await api.overlay.setValue(2)
     await delay(1000)
     setCountdown(1)
+    await api.overlay.setValue(1)
     await delay(1000)
+    await api.overlay.close()
     setCountdown(null)
 
     logRef.current = ''
@@ -329,7 +339,7 @@ export default function App() {
       <pre className="log">{log || '—'}</pre>
     </main>
 
-    {countdown !== null ? (
+    {countdown !== null && !hasBridge ? (
       <div
         className="countdown-overlay"
         role="dialog"
