@@ -5,12 +5,13 @@
   "type": "module",
   "main": "dist-electron/main.js",
   "scripts": {
-    "dev": "vite",
-    "build": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.node.json && vite build",
-    "build:native": "cd native/sck-record && swift build -c release",
-    "build:mac": "npm run build && npm run build:native && electron-builder --mac",
+    "build:native": "bash scripts/build-native.sh",
+    "dev": "npm run build:native && vite",
+    "build": "npm run build:native && tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.node.json && vite build",
+    "build:mac": "npm run build && electron-builder --mac",
     "deploy": "bash scripts/deploy.sh",
     "install:mac": "npm run deploy",
+    "prestart": "npm run build:native",
     "start": "electron .",
     "preview": "vite preview"
   },

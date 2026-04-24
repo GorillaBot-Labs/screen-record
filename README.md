@@ -12,25 +12,24 @@ macOS desktop app: **Electron**, **Vite**, **React**, and **TypeScript**. The UI
 
 ```bash
 npm install
-npm run build:native
 ```
-
-`build:native` produces `native/sck-record/.build/release/sck-record`, which **must** exist for dev (`npm run dev`) and is bundled into packaged apps (`npm run build:mac`).
 
 ## Scripts
 
-| Command | Description |
-|--------|-------------|
-| `npm run dev` | Start Vite and launch Electron against the dev server. |
-| `npm run build` | Typecheck and produce production assets in `dist/` and `dist-electron/`. |
-| `npm run start` | Run the packaged Electron entry after a build (same as `electron .`). |
-| `npm run preview` | Vite preview of the web build only (no Electron). |
-| `npm run build:native` | Build the `sck-record` binary (`swift build -c release` under `native/sck-record`). |
-| `npm run build:mac` | Production web/electron build, native helper, then packaged macOS app (`electron-builder`); output under `release/`. |
+| Command                | Description                                                                                        |
+| ---------------------- | -------------------------------------------------------------------------------------------------- |
+| `npm run dev`          | Builds `sck-record` when on macOS, then starts Vite + Electron.                                    |
+| `npm run build`        | Builds `sck-record` on macOS, then typecheck + Vite production assets (`dist/`, `dist-electron/`). |
+| `npm run start`        | Builds `sck-record` on macOS (`prestart`), then runs `electron .` (use after `npm run build`).     |
+| `npm run preview`      | Vite preview of the web build only (no Electron).                                                  |
+| `npm run build:native` | Only the Swift helper (`native/sck-record`); **skipped on non-macOS**.                             |
+| `npm run build:mac`    | Full production build + packaged macOS app (`electron-builder`); output under `release/`.          |
+| `npm run deploy`       | Same as `build:mac`, then installs the app to **Applications** (`scripts/deploy.sh`).              |
+| `npm run install:mac`  | Alias for `deploy`.                                                                                |
 
 ## Development notes
 
-This project is intended to run **locally** via `npm run dev` (or `npm run start` after a build). On macOS, **Screen Recording** and **Microphone** apply to the Electron binary you run from that workflow.
+This project is intended to run **locally** via `npm run dev` (or `npm run build` then `npm start`). On macOS, **Screen Recording** and **Microphone** apply to the Electron binary you run from that workflow.
 
 Uploads go to the GCS bucket **`screen-record`** by default (set `GCS_BUCKET` if you need a different bucket). Credentials: `~/.screen-record/gcp-credentials.json` (see `electron/gcs-upload.ts`).
 

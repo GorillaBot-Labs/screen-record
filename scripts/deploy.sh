@@ -7,11 +7,11 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 cd "${ROOT}"
 
-echo "==> 1/2 Build, native sck-record, and package macOS (electron-builder)"
+echo "==> Build and package (includes native sck-record via npm run build)"
 npm run build:mac
 
 echo ""
-echo "==> 2/2 Install Screen Record.app to Applications"
+echo "==> Install Screen Record.app to Applications"
 bash "${SCRIPT_DIR}/install-mac-app.sh"
 
 echo ""
