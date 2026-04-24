@@ -235,6 +235,14 @@ ipcMain.handle(
     return { ok: true, outputPath }
   })
 
+ipcMain.handle('window:minimize', (): { ok: true } | { ok: false; error: string } => {
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    return { ok: false, error: 'No window to minimize.' }
+  }
+  mainWindow.minimize()
+  return { ok: true }
+})
+
 ipcMain.handle('recording:stop', async (): Promise<{ ok: true } | { ok: false; error: string }> => {
   const child = ffmpegChild
   if (!child || child.killed) {

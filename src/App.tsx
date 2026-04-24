@@ -58,6 +58,12 @@ function sortByIndex(devices: AvfoundationDevice[]): AvfoundationDevice[] {
   return [...devices].sort((a, b) => a.index - b.index)
 }
 
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms)
+  })
+}
+
 export default function App() {
   const [ffmpegInfo, setFfmpegInfo] = useState<string>('…')
   const [log, setLog] = useState<string>('')
@@ -71,6 +77,8 @@ export default function App() {
   const [outputPath, setOutputPath] = useState<string | null>(null)
   const [recording, setRecording] = useState(false)
   const [finderHint, setFinderHint] = useState<string | null>(null)
+  /** 3 → 2 → 1 fullscreen overlay before recording; `null` when hidden. */
+  const [countdown, setCountdown] = useState<number | null>(null)
   const logRef = useRef<string>('')
 
   const applyDeviceSelection = useCallback(
@@ -153,6 +161,20 @@ export default function App() {
     const api = window.electronAPI
     if (!api || videoIndex == null || audioIndex == null) return
     setFinderHint(null)
+
+    setCountdown(3)
+    await delay(1000)
+    setCountdown(2)
+    await delay(1000)
+    setCountdown(1)
+    await delay(1000)
+    setCountdown(null)
+
+    const minRes = await api.minimizeWindow()
+    if (!minRes.ok) {
+      setStatus(`Could not minimize window: ${minRes.error}`)
+    }
+
     logRef.current = ''
     setLog('')
     setStatus('Starting…')
@@ -161,7 +183,7 @@ export default function App() {
     if (res.ok) {
       setRecording(true)
       setOutputPath(res.outputPath)
-      setStatus('Recording')
+      setStatus(minRes.ok ? 'Recording' : 'Recording (window was not minimized)')
     } else {
       setStatus(`Start failed: ${res.error}`)
     }
@@ -192,6 +214,7 @@ export default function App() {
   const canRecord =
     hasBridge &&
     !recording &&
+    countdown === null &&
     !devicesLoading &&
     devicesError == null &&
     videoIndex != null &&
@@ -199,7 +222,10 @@ export default function App() {
     videoDevices.length > 0 &&
     audioDevices.length > 0
 
+  const uiLockedForCountdown = countdown !== null
+
   return (
+    <>
     <main>
       <h1>Screen Record</h1>
       <p className="muted">ffmpeg: {ffmpegInfo}</p>
@@ -213,7 +239,7 @@ export default function App() {
             type="button"
             className="linkish"
             onClick={() => void refreshDevices()}
-            disabled={!hasBridge || recording || devicesLoading}
+            disabled={!hasBridge || recording || devicesLoading || uiLockedForCountdown}
           >
             Refresh
           </button>
@@ -229,7 +255,7 @@ export default function App() {
               id="av-video"
               value={videoIndex ?? ''}
               onChange={(e) => handleVideoChange(Number.parseInt(e.target.value, 10))}
-              disabled={!hasBridge || recording || videoDevices.length === 0}
+              disabled={!hasBridge || recording || uiLockedForCountdown || videoDevices.length === 0}
               aria-labelledby="capture-devices-label"
             >
               {videoDevices.map((d) => (
@@ -246,7 +272,7 @@ export default function App() {
               id="av-audio"
               value={audioIndex ?? ''}
               onChange={(e) => handleAudioChange(Number.parseInt(e.target.value, 10))}
-              disabled={!hasBridge || recording || audioDevices.length === 0}
+              disabled={!hasBridge || recording || uiLockedForCountdown || audioDevices.length === 0}
               aria-labelledby="capture-devices-label"
             >
               {audioDevices.map((d) => (
@@ -296,5 +322,28 @@ export default function App() {
       <h2 className="log-heading">ffmpeg log</h2>
       <pre className="log">{log || '—'}</pre>
     </main>
+
+    {countdown !== null ? (
+      <div
+        className="countdown-overlay"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="countdown-overlay-title"
+        aria-describedby="countdown-overlay-value"
+      >
+        <p id="countdown-overlay-title" className="countdown-overlay-label">
+          Recording starts in…
+        </p>
+        <p
+          id="countdown-overlay-value"
+          key={countdown}
+          className="countdown-overlay-digit"
+          aria-live="assertive"
+        >
+          {countdown}
+        </p>
+      </div>
+    ) : null}
+    </>
   )
 }

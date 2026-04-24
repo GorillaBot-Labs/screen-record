@@ -12,6 +12,7 @@ import type {
 declare global {
   interface Window {
     electronAPI?: {
+      minimizeWindow: () => Promise<{ ok: true } | { ok: false; error: string }>
       resolveFfmpegPath: () => Promise<ResolveFfmpegResult>
       listAvfoundationDevices: () => Promise<ListAvfoundationDevicesResult>
       startRecording: (options?: { avfoundationInput?: string }) => Promise<StartRecordingResult>

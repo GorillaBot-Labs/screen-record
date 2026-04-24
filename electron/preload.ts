@@ -21,6 +21,9 @@ export type ListAvfoundationDevicesResult =
   | { ok: false; error: string }
 
 contextBridge.exposeInMainWorld('electronAPI', {
+  minimizeWindow: (): Promise<{ ok: true } | { ok: false; error: string }> =>
+    ipcRenderer.invoke('window:minimize'),
+
   resolveFfmpegPath: (): Promise<ResolveFfmpegResult> =>
     ipcRenderer.invoke('recording:resolveFfmpeg'),
 
