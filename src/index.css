@@ -29,6 +29,27 @@ h1 {
   max-width: 42rem;
 }
 
+.field-label {
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+.field-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.5rem;
+}
+
+.sub-label {
+  display: block;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  margin: 0.65rem 0 0.35rem;
+  color: #bdc1c6;
+}
+
 .field label {
   display: block;
   font-size: 0.875rem;
@@ -36,7 +57,8 @@ h1 {
   margin-bottom: 0.35rem;
 }
 
-.field input[type='text'] {
+.field input[type='text'],
+.field select {
   box-sizing: border-box;
   width: 100%;
   padding: 0.5rem 0.65rem;
@@ -47,8 +69,27 @@ h1 {
   border-radius: 6px;
 }
 
-.field input[type='text']:disabled {
+.field input[type='text']:disabled,
+.field select:disabled {
   opacity: 0.65;
+}
+
+button.linkish {
+  font: inherit;
+  font-size: 0.8125rem;
+  color: #8ab4f8;
+  background: none;
+  border: none;
+  padding: 0.15rem 0.25rem;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+button.linkish:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  text-decoration: none;
 }
 
 .hint {

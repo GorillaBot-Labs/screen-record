@@ -1,6 +1,7 @@
 /// <reference types="vite/client" />
 
 import type {
+  ListAvfoundationDevicesResult,
   RecordingEndedPayload,
   RevealInFinderResult,
   ResolveFfmpegResult,
@@ -12,6 +13,7 @@ declare global {
   interface Window {
     electronAPI?: {
       resolveFfmpegPath: () => Promise<ResolveFfmpegResult>
+      listAvfoundationDevices: () => Promise<ListAvfoundationDevicesResult>
       startRecording: (options?: { avfoundationInput?: string }) => Promise<StartRecordingResult>
       stopRecording: () => Promise<StopRecordingResult>
       revealInFinder: (filePath: string) => Promise<RevealInFinderResult>

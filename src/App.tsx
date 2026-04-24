@@ -1,40 +1,114 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
-const AV_INPUT_STORAGE_KEY = 'screen-record:avfoundationInput'
-const DEFAULT_AV_INPUT = '3:1'
+import type { AvfoundationDevice } from '../electron/preload'
 
-function loadStoredAvInput(): string {
+const VIDEO_INDEX_STORAGE_KEY = 'screen-record:avVideoIndex'
+const AUDIO_INDEX_STORAGE_KEY = 'screen-record:avAudioIndex'
+/** Legacy single-field storage; migrated once into index keys when present. */
+const LEGACY_AV_INPUT_KEY = 'screen-record:avfoundationInput'
+
+function loadStoredIndex(key: string): number | null {
   try {
-    const v = localStorage.getItem(AV_INPUT_STORAGE_KEY)
-    if (v != null && v.trim().length > 0) return v.trim()
+    const raw = localStorage.getItem(key)
+    if (raw == null || raw.trim().length === 0) return null
+    const n = Number.parseInt(raw, 10)
+    return Number.isFinite(n) ? n : null
+  } catch {
+    return null
+  }
+}
+
+function persistIndex(key: string, index: number) {
+  try {
+    localStorage.setItem(key, String(index))
   } catch {
     /* ignore */
   }
-  return DEFAULT_AV_INPUT
+}
+
+function readLegacyAvPair(): { v: number; a: number } | null {
+  try {
+    const s = localStorage.getItem(LEGACY_AV_INPUT_KEY)?.trim()
+    if (!s) return null
+    const m = /^(\d+):(\d+)$/.exec(s)
+    if (!m) return null
+    const v = Number.parseInt(m[1], 10)
+    const a = Number.parseInt(m[2], 10)
+    if (!Number.isFinite(v) || !Number.isFinite(a)) return null
+    return { v, a }
+  } catch {
+    return null
+  }
+}
+
+function pickDefaultVideo(devices: AvfoundationDevice[]): number | null {
+  if (devices.length === 0) return null
+  if (devices.some((d) => d.index === 3)) return 3
+  const screen = devices.find((d) => /capture screen|screen \d/i.test(d.name))
+  return screen?.index ?? devices[0]!.index
+}
+
+function pickDefaultAudio(devices: AvfoundationDevice[]): number | null {
+  if (devices.length === 0) return null
+  if (devices.some((d) => d.index === 1)) return 1
+  return devices[0]!.index
+}
+
+function sortByIndex(devices: AvfoundationDevice[]): AvfoundationDevice[] {
+  return [...devices].sort((a, b) => a.index - b.index)
 }
 
 export default function App() {
   const [ffmpegInfo, setFfmpegInfo] = useState<string>('…')
   const [log, setLog] = useState<string>('')
   const [status, setStatus] = useState<string>('Idle')
-  const [avInput, setAvInput] = useState(loadStoredAvInput)
+  const [videoDevices, setVideoDevices] = useState<AvfoundationDevice[]>([])
+  const [audioDevices, setAudioDevices] = useState<AvfoundationDevice[]>([])
+  const [videoIndex, setVideoIndex] = useState<number | null>(null)
+  const [audioIndex, setAudioIndex] = useState<number | null>(null)
+  const [devicesLoading, setDevicesLoading] = useState(false)
+  const [devicesError, setDevicesError] = useState<string | null>(null)
   const [outputPath, setOutputPath] = useState<string | null>(null)
   const [recording, setRecording] = useState(false)
   const [finderHint, setFinderHint] = useState<string | null>(null)
   const logRef = useRef<string>('')
 
-  const persistAvInput = useCallback((value: string) => {
-    try {
-      const trimmed = value.trim()
-      if (trimmed.length === 0) {
-        localStorage.removeItem(AV_INPUT_STORAGE_KEY)
-      } else {
-        localStorage.setItem(AV_INPUT_STORAGE_KEY, trimmed)
-      }
-    } catch {
-      /* ignore */
+  const applyDeviceSelection = useCallback(
+    (video: AvfoundationDevice[], audio: AvfoundationDevice[]) => {
+      const legacy = readLegacyAvPair()
+      let v = loadStoredIndex(VIDEO_INDEX_STORAGE_KEY) ?? legacy?.v ?? null
+      let a = loadStoredIndex(AUDIO_INDEX_STORAGE_KEY) ?? legacy?.a ?? null
+      if (v == null || !video.some((d) => d.index === v)) v = pickDefaultVideo(video)
+      if (a == null || !audio.some((d) => d.index === a)) a = pickDefaultAudio(audio)
+      setVideoIndex(v)
+      setAudioIndex(a)
+      if (v != null) persistIndex(VIDEO_INDEX_STORAGE_KEY, v)
+      if (a != null) persistIndex(AUDIO_INDEX_STORAGE_KEY, a)
+    },
+    [],
+  )
+
+  const refreshDevices = useCallback(async () => {
+    const api = window.electronAPI
+    if (!api) return
+    setDevicesLoading(true)
+    setDevicesError(null)
+    const res = await api.listAvfoundationDevices()
+    setDevicesLoading(false)
+    if (!res.ok) {
+      setDevicesError(res.error)
+      setVideoDevices([])
+      setAudioDevices([])
+      setVideoIndex(null)
+      setAudioIndex(null)
+      return
     }
-  }, [])
+    const video = sortByIndex(res.video)
+    const audio = sortByIndex(res.audio)
+    setVideoDevices(video)
+    setAudioDevices(audio)
+    applyDeviceSelection(video, audio)
+  }, [applyDeviceSelection])
 
   useEffect(() => {
     const api = window.electronAPI
@@ -46,6 +120,8 @@ export default function App() {
     void api.resolveFfmpegPath().then((res) => {
       setFfmpegInfo(res.path ?? res.error)
     })
+
+    void refreshDevices()
 
     const offStderr = api.onRecordingStderr((chunk) => {
       logRef.current += chunk
@@ -61,21 +137,26 @@ export default function App() {
       offStderr()
       offEnded()
     }
-  }, [])
+  }, [refreshDevices])
 
-  function handleAvInputChange(next: string) {
-    setAvInput(next)
-    persistAvInput(next)
+  function handleVideoChange(index: number) {
+    setVideoIndex(index)
+    persistIndex(VIDEO_INDEX_STORAGE_KEY, index)
+  }
+
+  function handleAudioChange(index: number) {
+    setAudioIndex(index)
+    persistIndex(AUDIO_INDEX_STORAGE_KEY, index)
   }
 
   async function handleStart() {
     const api = window.electronAPI
-    if (!api) return
+    if (!api || videoIndex == null || audioIndex == null) return
     setFinderHint(null)
     logRef.current = ''
     setLog('')
     setStatus('Starting…')
-    const input = avInput.trim() || DEFAULT_AV_INPUT
+    const input = `${videoIndex}:${audioIndex}`
     const res = await api.startRecording({ avfoundationInput: input })
     if (res.ok) {
       setRecording(true)
@@ -108,7 +189,15 @@ export default function App() {
   }
 
   const hasBridge = Boolean(window.electronAPI)
-  const effectiveInput = avInput.trim() || DEFAULT_AV_INPUT
+  const canRecord =
+    hasBridge &&
+    !recording &&
+    !devicesLoading &&
+    devicesError == null &&
+    videoIndex != null &&
+    audioIndex != null &&
+    videoDevices.length > 0 &&
+    audioDevices.length > 0
 
   return (
     <main>
@@ -116,28 +205,68 @@ export default function App() {
       <p className="muted">ffmpeg: {ffmpegInfo}</p>
 
       <div className="field">
-        <label htmlFor="av-input">AVFoundation input</label>
-        <input
-          id="av-input"
-          type="text"
-          spellCheck={false}
-          autoComplete="off"
-          placeholder={DEFAULT_AV_INPUT}
-          value={avInput}
-          onChange={(e) => handleAvInputChange(e.target.value)}
-          disabled={!hasBridge || recording}
-          aria-describedby="av-input-hint"
-        />
+        <div className="field-header">
+          <span id="capture-devices-label" className="field-label">
+            Capture devices
+          </span>
+          <button
+            type="button"
+            className="linkish"
+            onClick={() => void refreshDevices()}
+            disabled={!hasBridge || recording || devicesLoading}
+          >
+            Refresh
+          </button>
+        </div>
+        {devicesLoading ? <p className="hint">Loading devices…</p> : null}
+        {devicesError ? <p className="hint warn">{devicesError}</p> : null}
+        {!devicesLoading && !devicesError ? (
+          <>
+            <label htmlFor="av-video" className="sub-label">
+              Video (screen or camera)
+            </label>
+            <select
+              id="av-video"
+              value={videoIndex ?? ''}
+              onChange={(e) => handleVideoChange(Number.parseInt(e.target.value, 10))}
+              disabled={!hasBridge || recording || videoDevices.length === 0}
+              aria-labelledby="capture-devices-label"
+            >
+              {videoDevices.map((d) => (
+                <option key={d.index} value={d.index}>
+                  [{d.index}] {d.name}
+                </option>
+              ))}
+            </select>
+
+            <label htmlFor="av-audio" className="sub-label">
+              Audio (microphone)
+            </label>
+            <select
+              id="av-audio"
+              value={audioIndex ?? ''}
+              onChange={(e) => handleAudioChange(Number.parseInt(e.target.value, 10))}
+              disabled={!hasBridge || recording || audioDevices.length === 0}
+              aria-labelledby="capture-devices-label"
+            >
+              {audioDevices.map((d) => (
+                <option key={d.index} value={d.index}>
+                  [{d.index}] {d.name}
+                </option>
+              ))}
+            </select>
+          </>
+        ) : null}
         <p id="av-input-hint" className="hint">
-          Video:audio device indices passed to <code>ffmpeg -i</code> (default <code>{DEFAULT_AV_INPUT}</code>).
-          Saved locally.
+          Options come from <code>ffmpeg -f avfoundation -list_devices true -i &quot;&quot;</code>.
+          Defaults favor screen index <code>3</code> and audio index <code>1</code> when those exist.
         </p>
       </div>
 
       <p className="status">{status}</p>
 
       <p className="actions">
-        <button type="button" onClick={() => void handleStart()} disabled={!hasBridge || recording}>
+        <button type="button" onClick={() => void handleStart()} disabled={!canRecord}>
           Start
         </button>{' '}
         <button type="button" onClick={() => void handleStop()} disabled={!hasBridge || !recording}>
@@ -162,7 +291,6 @@ export default function App() {
         ) : (
           <p className="muted path-placeholder">Start a recording to see the destination path.</p>
         )}
-        <p className="hint">Using input <code>{effectiveInput}</code> for the next start.</p>
       </section>
 
       <h2 className="log-heading">ffmpeg log</h2>

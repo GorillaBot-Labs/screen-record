@@ -14,9 +14,18 @@ export type RevealInFinderResult = { ok: true } | { ok: false; error: string }
 
 export type RecordingEndedPayload = { code: number | null; signal: NodeJS.Signals | null }
 
+export type AvfoundationDevice = { index: number; name: string }
+
+export type ListAvfoundationDevicesResult =
+  | { ok: true; video: AvfoundationDevice[]; audio: AvfoundationDevice[] }
+  | { ok: false; error: string }
+
 contextBridge.exposeInMainWorld('electronAPI', {
   resolveFfmpegPath: (): Promise<ResolveFfmpegResult> =>
     ipcRenderer.invoke('recording:resolveFfmpeg'),
+
+  listAvfoundationDevices: (): Promise<ListAvfoundationDevicesResult> =>
+    ipcRenderer.invoke('recording:listAvfoundationDevices'),
 
   startRecording: (options?: {
     avfoundationInput?: string

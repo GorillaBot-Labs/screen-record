@@ -64,11 +64,99 @@ function forwardStderrToRenderer(sender: Electron.WebContents, chunk: Buffer | s
   sender.send('recording:stderr', typeof chunk === 'string' ? chunk : chunk.toString())
 }
 
+type AvfoundationDevice = { index: number; name: string }
+
+function parseAvfoundationDeviceList(stderr: string): { video: AvfoundationDevice[]; audio: AvfoundationDevice[] } {
+  const video: AvfoundationDevice[] = []
+  const audio: AvfoundationDevice[] = []
+  let section: 'none' | 'video' | 'audio' = 'none'
+  for (const line of stderr.split(/\r?\n/)) {
+    if (line.includes('AVFoundation video devices:')) {
+      section = 'video'
+      video.length = 0
+      continue
+    }
+    if (line.includes('AVFoundation audio devices:')) {
+      section = 'audio'
+      audio.length = 0
+      continue
+    }
+    const m = line.match(/\]\s*\[(\d+)\]\s*(.+)$/)
+    if (!m) continue
+    const index = Number.parseInt(m[1], 10)
+    const name = m[2].trim()
+    if (Number.isNaN(index) || name.length === 0) continue
+    if (section === 'video') video.push({ index, name })
+    else if (section === 'audio') audio.push({ index, name })
+  }
+  return { video, audio }
+}
+
+function listAvfoundationDevicesFromFfmpeg(ffmpegPath: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const chunks: Buffer[] = []
+    const child = spawn(
+      ffmpegPath,
+      ['-hide_banner', '-f', 'avfoundation', '-list_devices', 'true', '-i', ''],
+      { stdio: ['ignore', 'ignore', 'pipe'] },
+    )
+    const t = setTimeout(() => {
+      child.kill('SIGKILL')
+      reject(new Error('Listing devices timed out.'))
+    }, 20_000)
+    child.stderr.on('data', (c: Buffer) => {
+      chunks.push(c)
+    })
+    child.on('error', (err) => {
+      clearTimeout(t)
+      reject(err)
+    })
+    child.on('close', () => {
+      clearTimeout(t)
+      resolve(Buffer.concat(chunks).toString('utf8'))
+    })
+  })
+}
+
 ipcMain.handle('recording:resolveFfmpeg', (): { path: string } | { path: null; error: string } => {
   const resolved = resolveFfmpegPath()
   if (resolved) return { path: resolved }
   return { path: null, error: 'ffmpeg not found. Install with brew install ffmpeg or add ffmpeg to PATH.' }
 })
+
+ipcMain.handle(
+  'recording:listAvfoundationDevices',
+  async (): Promise<
+    | { ok: true; video: AvfoundationDevice[]; audio: AvfoundationDevice[] }
+    | { ok: false; error: string }
+  > => {
+    if (process.platform !== 'darwin') {
+      return { ok: false, error: 'AVFoundation device listing is only available on macOS.' }
+    }
+    const ffmpegPath = resolveFfmpegPath()
+    if (!ffmpegPath) {
+      return {
+        ok: false,
+        error: 'ffmpeg not found. Install with brew install ffmpeg or add ffmpeg to PATH.',
+      }
+    }
+    try {
+      const stderr = await listAvfoundationDevicesFromFfmpeg(ffmpegPath)
+      const { video, audio } = parseAvfoundationDeviceList(stderr)
+      if (video.length === 0 && audio.length === 0) {
+        return {
+          ok: false,
+          error:
+            'No AVFoundation devices parsed from ffmpeg output. Try running: ffmpeg -f avfoundation -list_devices true -i ""',
+        }
+      }
+      return { ok: true, video, audio }
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e)
+      return { ok: false, error: msg }
+    }
+  },
+)
 
 ipcMain.handle(
   'recording:start',
