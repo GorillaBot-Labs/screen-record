@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, unlinkSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { spawn, execFileSync, type ChildProcess } from 'node:child_process'
+import { spawn, spawnSync, type ChildProcess } from 'node:child_process'
 import {
   app,
   BrowserWindow,
@@ -43,26 +43,55 @@ registerCountdownOverlayIpc({
 let mainWindow: BrowserWindow | null = null
 let tray: Tray | null = null
 
-/** Default AVFoundation input string `<video>:<audio>` (see plan). */
-const DEFAULT_AVFOUNDATION_INPUT = '3:1'
+/** Default `displayIndex:audioIndex` when the renderer omits `captureInput`. */
+const DEFAULT_CAPTURE_INPUT = '0:0'
 
-let ffmpegChild: ChildProcess | null = null
+type CaptureDevice = { index: number; name: string }
 
-function resolveFfmpegPath(): string | null {
-  const candidates = ['/opt/homebrew/bin/ffmpeg', '/usr/local/bin/ffmpeg']
-  for (const p of candidates) {
-    if (existsSync(p)) return p
+let recordingChild: ChildProcess | null = null
+
+function resolveSckRecorderPath(): string | null {
+  if (process.platform !== 'darwin') return null
+  if (app.isPackaged) {
+    const p = path.join(process.resourcesPath, 'sck-record')
+    return existsSync(p) ? p : null
   }
-  try {
-    const out = execFileSync('which', ['ffmpeg'], { encoding: 'utf8' }).trim()
-    if (out.length > 0) return out
-  } catch {
-    /* not on PATH */
-  }
-  return null
+  const dev = path.join(appRoot, 'native', 'sck-record', '.build', 'release', 'sck-record')
+  return existsSync(dev) ? dev : null
 }
 
-/** Temp staging dir for ffmpeg output; file is removed after a successful GCS upload. */
+function listSckDevicesSync(
+  sckPath: string,
+): { video: CaptureDevice[]; audio: CaptureDevice[] } | null {
+  const r = spawnSync(sckPath, ['--list-json'], {
+    encoding: 'utf8',
+    maxBuffer: 4 * 1024 * 1024,
+    timeout: 25_000,
+  })
+  if (r.error || r.status !== 0 || typeof r.stdout !== 'string') return null
+  const trimmed = r.stdout.trim()
+  if (trimmed.length === 0) return null
+  try {
+    const o = JSON.parse(trimmed) as { video?: CaptureDevice[]; audio?: CaptureDevice[] }
+    if (!Array.isArray(o.video) || !Array.isArray(o.audio)) return null
+    return { video: o.video, audio: o.audio }
+  } catch {
+    return null
+  }
+}
+
+function parseCaptureIndices(input: string): { video: number; audio: number } {
+  const parts = input.split(':')
+  const video = Number.parseInt(parts[0] ?? '', 10)
+  const audio = Number.parseInt(parts[1] ?? '', 10)
+  if (Number.isNaN(video) || Number.isNaN(audio)) {
+    const [dv, da] = DEFAULT_CAPTURE_INPUT.split(':')
+    return { video: Number.parseInt(dv!, 10), audio: Number.parseInt(da!, 10) }
+  }
+  return { video, audio }
+}
+
+/** Temp staging dir for recorder output; file is removed after a successful GCS upload. */
 function recordingStagingDir(): string {
   return path.join(tmpdir(), 'screen-record')
 }
@@ -125,7 +154,7 @@ function sendTrayStartRecordingToRenderer() {
 
 function updateTrayMenu() {
   if (!tray) return
-  const recording = Boolean(ffmpegChild && !ffmpegChild.killed)
+  const recording = Boolean(recordingChild && !recordingChild.killed)
   tray.setContextMenu(
     Menu.buildFromTemplate([
       {
@@ -205,9 +234,9 @@ function forwardRecordingEnded(sender: Electron.WebContents, payload: { code: nu
   sender.send('recording:ended', payload)
 }
 
-/** Sends SIGINT to ffmpeg; used from IPC and the menu bar tray. */
+/** Sends SIGINT to the active sck-record process. */
 function stopRecordingChild(): { ok: true } | { ok: false; error: string } {
-  const child = ffmpegChild
+  const child = recordingChild
   if (!child || child.killed) {
     return { ok: false, error: 'Not recording.' }
   }
@@ -215,96 +244,41 @@ function stopRecordingChild(): { ok: true } | { ok: false; error: string } {
   return { ok: true }
 }
 
-type AvfoundationDevice = { index: number; name: string }
-
-function parseAvfoundationDeviceList(stderr: string): { video: AvfoundationDevice[]; audio: AvfoundationDevice[] } {
-  const video: AvfoundationDevice[] = []
-  const audio: AvfoundationDevice[] = []
-  let section: 'none' | 'video' | 'audio' = 'none'
-  for (const line of stderr.split(/\r?\n/)) {
-    if (line.includes('AVFoundation video devices:')) {
-      section = 'video'
-      video.length = 0
-      continue
-    }
-    if (line.includes('AVFoundation audio devices:')) {
-      section = 'audio'
-      audio.length = 0
-      continue
-    }
-    const m = line.match(/\]\s*\[(\d+)\]\s*(.+)$/)
-    if (!m) continue
-    const index = Number.parseInt(m[1], 10)
-    const name = m[2].trim()
-    if (Number.isNaN(index) || name.length === 0) continue
-    if (section === 'video') video.push({ index, name })
-    else if (section === 'audio') audio.push({ index, name })
-  }
-  return { video, audio }
-}
-
-function listAvfoundationDevicesFromFfmpeg(ffmpegPath: string): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const chunks: Buffer[] = []
-    const child = spawn(
-      ffmpegPath,
-      ['-hide_banner', '-f', 'avfoundation', '-list_devices', 'true', '-i', ''],
-      { stdio: ['ignore', 'ignore', 'pipe'] },
-    )
-    const t = setTimeout(() => {
-      child.kill('SIGKILL')
-      reject(new Error('Listing devices timed out.'))
-    }, 20_000)
-    child.stderr.on('data', (c: Buffer) => {
-      chunks.push(c)
-    })
-    child.on('error', (err) => {
-      clearTimeout(t)
-      reject(err)
-    })
-    child.on('close', () => {
-      clearTimeout(t)
-      resolve(Buffer.concat(chunks).toString('utf8'))
-    })
-  })
-}
-
-ipcMain.handle('recording:resolveFfmpeg', (): { path: string } | { path: null; error: string } => {
-  const resolved = resolveFfmpegPath()
+ipcMain.handle('recording:resolveSck', (): { path: string } | { path: null; error: string } => {
+  const resolved = resolveSckRecorderPath()
   if (resolved) return { path: resolved }
-  return { path: null, error: 'ffmpeg not found. Install with brew install ffmpeg or add ffmpeg to PATH.' }
+  return {
+    path: null,
+    error:
+      'sck-record not found. From the repo root run: npm run build:native (needs Xcode / Swift). Packaged apps include the binary under Resources.',
+  }
 })
 
 ipcMain.handle(
-  'recording:listAvfoundationDevices',
+  'recording:listCaptureDevices',
   async (): Promise<
-    | { ok: true; video: AvfoundationDevice[]; audio: AvfoundationDevice[] }
+    | { ok: true; video: CaptureDevice[]; audio: CaptureDevice[] }
     | { ok: false; error: string }
   > => {
     if (process.platform !== 'darwin') {
-      return { ok: false, error: 'AVFoundation device listing is only available on macOS.' }
+      return { ok: false, error: 'Screen recording is only supported on macOS.' }
     }
-    const ffmpegPath = resolveFfmpegPath()
-    if (!ffmpegPath) {
+    const sckPath = resolveSckRecorderPath()
+    if (!sckPath) {
       return {
         ok: false,
-        error: 'ffmpeg not found. Install with brew install ffmpeg or add ffmpeg to PATH.',
+        error:
+          'Native recorder (sck-record) is missing. Run `npm run build:native` from the project root, then refresh.',
       }
     }
-    try {
-      const stderr = await listAvfoundationDevicesFromFfmpeg(ffmpegPath)
-      const { video, audio } = parseAvfoundationDeviceList(stderr)
-      if (video.length === 0 && audio.length === 0) {
-        return {
-          ok: false,
-          error:
-            'No AVFoundation devices parsed from ffmpeg output. Try running: ffmpeg -f avfoundation -list_devices true -i ""',
-        }
-      }
-      return { ok: true, video, audio }
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e)
-      return { ok: false, error: msg }
+    const listed = listSckDevicesSync(sckPath)
+    if (listed && (listed.video.length > 0 || listed.audio.length > 0)) {
+      return { ok: true, video: listed.video, audio: listed.audio }
+    }
+    return {
+      ok: false,
+      error:
+        'Could not list displays or microphones (sck-record --list-json failed). Grant Screen Recording if prompted, then try again.',
     }
   },
 )
@@ -313,21 +287,27 @@ ipcMain.handle(
   'recording:start',
   async (
     event,
-    options: { avfoundationInput?: string } = {},
+    options: { captureInput?: string } = {},
   ): Promise<{ ok: true; outputPath: string } | { ok: false; error: string }> => {
-    if (ffmpegChild) {
+    if (recordingChild) {
       return { ok: false, error: 'Recording already in progress.' }
     }
 
-    const ffmpegPath = resolveFfmpegPath()
-    if (!ffmpegPath) {
+    if (process.platform !== 'darwin') {
+      return { ok: false, error: 'Recording is only supported on macOS.' }
+    }
+
+    const sckPath = resolveSckRecorderPath()
+    if (!sckPath) {
       return {
         ok: false,
-        error: 'ffmpeg not found. Try /opt/homebrew/bin/ffmpeg, /usr/local/bin/ffmpeg, or PATH.',
+        error:
+          'Native recorder (sck-record) is missing. Run `npm run build:native` from the project root, then try again.',
       }
     }
 
-    const avInput = options.avfoundationInput?.trim() || DEFAULT_AVFOUNDATION_INPUT
+    const captureInput = options.captureInput?.trim() || DEFAULT_CAPTURE_INPUT
+    const { video: displayIdx, audio: audioIdx } = parseCaptureIndices(captureInput)
     const outputPath = defaultOutputPath()
 
     try {
@@ -337,50 +317,32 @@ ipcMain.handle(
       return { ok: false, error: `Could not create temp recording directory: ${msg}` }
     }
 
-    const args = [
-      '-y',
-      '-f',
-      'avfoundation',
-      '-framerate',
-      '30',
-      '-i',
-      avInput,
-      '-c:v',
-      'libx264',
-      '-preset',
-      'veryfast',
-      '-crf',
-      '23',
-      '-c:a',
-      'aac',
-      '-b:a',
-      '128k',
-      outputPath,
-    ]
+    const child = spawn(
+      sckPath,
+      ['--output', outputPath, '--display', String(displayIdx), '--audio', String(audioIdx)],
+      { stdio: ['ignore', 'ignore', 'pipe'] },
+    )
 
-    const child = spawn(ffmpegPath, args, {
-      stdio: ['ignore', 'ignore', 'pipe'],
-    })
-
-    ffmpegChild = child
+    recordingChild = child
 
     const sender = event.sender
-    child.stderr.on('data', (chunk: Buffer) => {
+    forwardStderrToRenderer(sender, 'Using ScreenCaptureKit (sck-record).\n')
+    child.stderr?.on('data', (chunk: Buffer) => {
       forwardStderrToRenderer(sender, chunk)
     })
 
     child.on('error', (err) => {
-      if (ffmpegChild === child) {
-        ffmpegChild = null
+      if (recordingChild === child) {
+        recordingChild = null
       }
-      forwardStderrToRenderer(sender, `ffmpeg process error: ${err.message}\n`)
+      forwardStderrToRenderer(sender, `Recorder process error: ${err.message}\n`)
       updateTrayMenu()
       showMainWindow()
     })
 
     child.on('close', (code, signal) => {
-      if (ffmpegChild === child) {
-        ffmpegChild = null
+      if (recordingChild === child) {
+        recordingChild = null
       }
       forwardRecordingEnded(sender, { code, signal })
       updateTrayMenu()
@@ -503,8 +465,8 @@ ipcMain.handle(
 
 function stopRecordingOnQuit() {
   destroyCountdownOverlay()
-  if (ffmpegChild && !ffmpegChild.killed) {
-    ffmpegChild.kill('SIGINT')
+  if (recordingChild && !recordingChild.killed) {
+    recordingChild.kill('SIGINT')
   }
 }
 

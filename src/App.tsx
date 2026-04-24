@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
-import type { AvfoundationDevice } from '../electron/preload'
+import type { CaptureDevice } from '../electron/preload'
 
 const VIDEO_INDEX_STORAGE_KEY = 'screen-record:avVideoIndex'
 const AUDIO_INDEX_STORAGE_KEY = 'screen-record:avAudioIndex'
@@ -41,20 +41,20 @@ function readLegacyAvPair(): { v: number; a: number } | null {
   }
 }
 
-function pickDefaultVideo(devices: AvfoundationDevice[]): number | null {
+function pickDefaultVideo(devices: CaptureDevice[]): number | null {
   if (devices.length === 0) return null
-  if (devices.some((d) => d.index === 3)) return 3
-  const screen = devices.find((d) => /capture screen|screen \d/i.test(d.name))
+  if (devices.some((d) => d.index === 0)) return 0
+  const screen = devices.find((d) => /display|screen/i.test(d.name))
   return screen?.index ?? devices[0]!.index
 }
 
-function pickDefaultAudio(devices: AvfoundationDevice[]): number | null {
+function pickDefaultAudio(devices: CaptureDevice[]): number | null {
   if (devices.length === 0) return null
-  if (devices.some((d) => d.index === 1)) return 1
+  if (devices.some((d) => d.index === 0)) return 0
   return devices[0]!.index
 }
 
-function sortByIndex(devices: AvfoundationDevice[]): AvfoundationDevice[] {
+function sortByIndex(devices: CaptureDevice[]): CaptureDevice[] {
   return [...devices].sort((a, b) => a.index - b.index)
 }
 
@@ -94,18 +94,18 @@ function recordingTitleFromUrl(url: string): string {
 }
 
 export default function App() {
-  const [ffmpegInfo, setFfmpegInfo] = useState<string>('…')
+  const [sckRecorderInfo, setSckRecorderInfo] = useState<string>('…')
   const [log, setLog] = useState<string>('')
   const [status, setStatus] = useState<string>('Idle')
-  const [videoDevices, setVideoDevices] = useState<AvfoundationDevice[]>([])
-  const [audioDevices, setAudioDevices] = useState<AvfoundationDevice[]>([])
+  const [videoDevices, setVideoDevices] = useState<CaptureDevice[]>([])
+  const [audioDevices, setAudioDevices] = useState<CaptureDevice[]>([])
   const [videoIndex, setVideoIndex] = useState<number | null>(null)
   const [audioIndex, setAudioIndex] = useState<number | null>(null)
   const [devicesLoading, setDevicesLoading] = useState(false)
   const [devicesError, setDevicesError] = useState<string | null>(null)
   const [outputPath, setOutputPath] = useState<string | null>(null)
   const [recording, setRecording] = useState(false)
-  /** After ffmpeg exits: upload to GCS until we get `recording:gcs-upload`. */
+  /** After sck-record exits: upload to GCS until we get `recording:gcs-upload`. */
   const [cloudUploading, setCloudUploading] = useState(false)
   const [shareUrl, setShareUrl] = useState<string | null>(null)
   const [shareError, setShareError] = useState<string | null>(null)
@@ -120,7 +120,7 @@ export default function App() {
   outputPathRef.current = outputPath
 
   const applyDeviceSelection = useCallback(
-    (video: AvfoundationDevice[], audio: AvfoundationDevice[]) => {
+    (video: CaptureDevice[], audio: CaptureDevice[]) => {
       const legacy = readLegacyAvPair()
       let v = loadStoredIndex(VIDEO_INDEX_STORAGE_KEY) ?? legacy?.v ?? null
       let a = loadStoredIndex(AUDIO_INDEX_STORAGE_KEY) ?? legacy?.a ?? null
@@ -139,7 +139,7 @@ export default function App() {
     if (!api) return
     setDevicesLoading(true)
     setDevicesError(null)
-    const res = await api.listAvfoundationDevices()
+    const res = await api.listCaptureDevices()
     setDevicesLoading(false)
     if (!res.ok) {
       setDevicesError(res.error)
@@ -166,12 +166,12 @@ export default function App() {
   useEffect(() => {
     const api = window.electronAPI
     if (!api) {
-      setFfmpegInfo('Renderer has no preload bridge (open via Electron).')
+      setSckRecorderInfo('Renderer has no preload bridge (open via Electron).')
       return
     }
 
-    void api.resolveFfmpegPath().then((res) => {
-      setFfmpegInfo(res.path ?? res.error)
+    void api.resolveSckRecorderPath().then((res) => {
+      setSckRecorderInfo(res.path ?? res.error)
     })
 
     void refreshDevices()
@@ -286,7 +286,7 @@ export default function App() {
       setLog('')
       setStatus('Starting…')
       const input = `${videoIndex}:${audioIndex}`
-      const res = await api.startRecording({ avfoundationInput: input })
+      const res = await api.startRecording({ captureInput: input })
       if (res.ok) {
         setRecording(true)
         setOutputPath(res.outputPath)
@@ -326,7 +326,7 @@ export default function App() {
     if (!api) return
     const res = await api.stopRecording()
     if (res.ok) {
-      setStatus('Stop sent (SIGINT); wait for ffmpeg to finalize…')
+      setStatus('Stop sent (SIGINT); wait for the recorder to finalize…')
     } else {
       setStatus(res.error)
     }
@@ -575,18 +575,17 @@ export default function App() {
             <summary>Technical details</summary>
             <div className="app-details-body">
               <p>
-                <strong>ffmpeg</strong> — <code>{ffmpegInfo}</code>
+                <strong>sck-record</strong> — <code>{sckRecorderInfo}</code>
               </p>
               <p>
-                Device lists come from{' '}
-                <code>ffmpeg -f avfoundation -list_devices true -i &quot;&quot;</code>. Defaults prefer screen index{' '}
-                <code>3</code> and microphone index <code>1</code> when present.
+                Device lists come from the native helper (<code>sck-record --list-json</code>). Defaults prefer
+                display index <code>0</code> and microphone index <code>0</code> when present.
               </p>
             </div>
           </details>
 
           <details className="app-details">
-            <summary>ffmpeg log</summary>
+            <summary>Recorder log</summary>
             <div className="app-details-body">
               <pre className="log">{log || '—'}</pre>
             </div>

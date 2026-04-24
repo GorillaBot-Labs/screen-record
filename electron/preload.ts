@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron'
 
-export type ResolveFfmpegResult =
+export type ResolveSckRecorderResult =
   | { path: string }
   | { path: null; error: string }
 
@@ -18,10 +18,10 @@ export type RecordingGcsUploadPayload =
   | { ok: true; url: string; outputPath: string; localFileDeleted?: boolean }
   | { ok: false; error: string; outputPath: string }
 
-export type AvfoundationDevice = { index: number; name: string }
+export type CaptureDevice = { index: number; name: string }
 
-export type ListAvfoundationDevicesResult =
-  | { ok: true; video: AvfoundationDevice[]; audio: AvfoundationDevice[] }
+export type ListCaptureDevicesResult =
+  | { ok: true; video: CaptureDevice[]; audio: CaptureDevice[] }
   | { ok: false; error: string }
 
 export type OpenCountdownOverlayResult = { ok: true } | { ok: false; error: string }
@@ -71,15 +71,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   overlay,
 
-  resolveFfmpegPath: (): Promise<ResolveFfmpegResult> =>
-    ipcRenderer.invoke('recording:resolveFfmpeg'),
+  resolveSckRecorderPath: (): Promise<ResolveSckRecorderResult> =>
+    ipcRenderer.invoke('recording:resolveSck'),
 
-  listAvfoundationDevices: (): Promise<ListAvfoundationDevicesResult> =>
-    ipcRenderer.invoke('recording:listAvfoundationDevices'),
+  listCaptureDevices: (): Promise<ListCaptureDevicesResult> =>
+    ipcRenderer.invoke('recording:listCaptureDevices'),
 
-  startRecording: (options?: {
-    avfoundationInput?: string
-  }): Promise<StartRecordingResult> =>
+  startRecording: (options?: { captureInput?: string }): Promise<StartRecordingResult> =>
     ipcRenderer.invoke('recording:start', options ?? {}),
 
   stopRecording: (): Promise<StopRecordingResult> => ipcRenderer.invoke('recording:stop'),

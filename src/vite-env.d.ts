@@ -1,14 +1,15 @@
 /// <reference types="vite/client" />
 
 import type {
+  CaptureDevice,
   ElectronOverlayAPI,
-  ListAvfoundationDevicesResult,
+  ListCaptureDevicesResult,
   ListRecentRecordingsResult,
   OpenExternalUrlResult,
   RecordingEndedPayload,
   RecordingGcsUploadPayload,
   RevealInFinderResult,
-  ResolveFfmpegResult,
+  ResolveSckRecorderResult,
   StartRecordingResult,
   StopRecordingResult,
 } from '../electron/preload'
@@ -19,9 +20,9 @@ declare global {
       minimizeWindow: () => Promise<{ ok: true } | { ok: false; error: string }>
       countdownWaitMs: (ms: number) => Promise<{ skipped: boolean }>
       overlay: ElectronOverlayAPI
-      resolveFfmpegPath: () => Promise<ResolveFfmpegResult>
-      listAvfoundationDevices: () => Promise<ListAvfoundationDevicesResult>
-      startRecording: (options?: { avfoundationInput?: string }) => Promise<StartRecordingResult>
+      resolveSckRecorderPath: () => Promise<ResolveSckRecorderResult>
+      listCaptureDevices: () => Promise<ListCaptureDevicesResult>
+      startRecording: (options?: { captureInput?: string }) => Promise<StartRecordingResult>
       stopRecording: () => Promise<StopRecordingResult>
       listRecentRecordings: () => Promise<ListRecentRecordingsResult>
       openExternalUrl: (url: string) => Promise<OpenExternalUrlResult>

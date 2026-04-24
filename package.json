@@ -7,7 +7,8 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.node.json && vite build",
-    "build:mac": "npm run build && electron-builder --mac",
+    "build:native": "cd native/sck-record && swift build -c release",
+    "build:mac": "npm run build && npm run build:native && electron-builder --mac",
     "deploy": "bash scripts/deploy.sh",
     "install:mac": "npm run deploy",
     "start": "electron .",
@@ -38,6 +39,12 @@
       "dist/**/*",
       "dist-electron/**/*",
       "resources/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "native/sck-record/.build/release/sck-record",
+        "to": "sck-record"
+      }
     ],
     "mac": {
       "category": "public.app-category.video",
