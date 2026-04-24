@@ -77,9 +77,15 @@ export default function App() {
   const [outputPath, setOutputPath] = useState<string | null>(null)
   const [recording, setRecording] = useState(false)
   const [finderHint, setFinderHint] = useState<string | null>(null)
+  /** After ffmpeg exits: upload to GCS until we get `recording:gcs-upload`. */
+  const [cloudUploading, setCloudUploading] = useState(false)
+  const [shareUrl, setShareUrl] = useState<string | null>(null)
+  const [shareError, setShareError] = useState<string | null>(null)
   /** 3 → 2 → 1 fullscreen overlay before recording; `null` when hidden. */
   const [countdown, setCountdown] = useState<number | null>(null)
   const logRef = useRef<string>('')
+  const outputPathRef = useRef<string | null>(null)
+  outputPathRef.current = outputPath
 
   const applyDeviceSelection = useCallback(
     (video: AvfoundationDevice[], audio: AvfoundationDevice[]) => {
@@ -138,12 +144,28 @@ export default function App() {
 
     const offEnded = api.onRecordingEnded(({ code, signal }) => {
       setRecording(false)
-      setStatus(`Ended (code=${code}, signal=${signal ?? 'none'})`)
+      setCloudUploading(true)
+      setStatus(`Ended (code=${code}, signal=${signal ?? 'none'}). Uploading…`)
+    })
+
+    const offGcs = api.onRecordingGcsUpload((p) => {
+      setCloudUploading(false)
+      if (p.outputPath !== outputPathRef.current) return
+      if (p.ok) {
+        setShareUrl(p.url)
+        setShareError(null)
+        setStatus('Recording uploaded. Share link copied to the clipboard.')
+      } else {
+        setShareUrl(null)
+        setShareError(p.error)
+        setStatus('Recording saved locally, but cloud upload failed.')
+      }
     })
 
     return () => {
       offStderr()
       offEnded()
+      offGcs()
     }
   }, [refreshDevices])
 
@@ -193,6 +215,9 @@ export default function App() {
     if (res.ok) {
       setRecording(true)
       setOutputPath(res.outputPath)
+      setShareUrl(null)
+      setShareError(null)
+      setCloudUploading(false)
       setStatus(minRes.ok ? 'Recording' : 'Recording (window was not minimized)')
     } else {
       setStatus(`Start failed: ${res.error}`)
@@ -217,6 +242,15 @@ export default function App() {
     const res = await api.revealInFinder(outputPath)
     if (!res.ok) {
       setFinderHint(res.error)
+    }
+  }
+
+  async function handleCopyShareLink() {
+    if (!shareUrl) return
+    try {
+      await navigator.clipboard.writeText(shareUrl)
+    } catch {
+      /* user can select the link in the UI */
     }
   }
 
@@ -333,6 +367,31 @@ export default function App() {
         ) : (
           <p className="muted path-placeholder">Start a recording to see the destination path.</p>
         )}
+      </section>
+
+      <section className="path-block" aria-label="Cloud share link">
+        <h2 className="path-heading">Share link</h2>
+        {cloudUploading ? <p className="hint">Uploading recording to Google Cloud…</p> : null}
+        {shareError ? <p className="hint warn">{shareError}</p> : null}
+        {shareUrl ? (
+          <>
+            <p className="share-hint hint">
+              Link was copied to your clipboard when the upload finished. You can copy it again below.
+            </p>
+            <p className="path-line">
+              <code className="share-url">{shareUrl}</code>
+            </p>
+            <p className="actions">
+              <button type="button" onClick={() => void handleCopyShareLink()}>
+                Copy link
+              </button>
+            </p>
+          </>
+        ) : !cloudUploading && !shareError ? (
+          <p className="muted path-placeholder">
+            When a recording finishes, the app uploads it to your GCS bucket and shows a read-only link here.
+          </p>
+        ) : null}
       </section>
 
       <h2 className="log-heading">ffmpeg log</h2>

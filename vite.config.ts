@@ -37,7 +37,7 @@ export default defineConfig(({ command }) => {
               minify: isBuild,
               outDir: 'dist-electron',
               rollupOptions: {
-                external: ['electron'],
+                external: ['electron', '@google-cloud/storage'],
               },
             },
           },

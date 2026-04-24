@@ -14,6 +14,10 @@ export type RevealInFinderResult = { ok: true } | { ok: false; error: string }
 
 export type RecordingEndedPayload = { code: number | null; signal: NodeJS.Signals | null }
 
+export type RecordingGcsUploadPayload =
+  | { ok: true; url: string; outputPath: string }
+  | { ok: false; error: string; outputPath: string }
+
 export type AvfoundationDevice = { index: number; name: string }
 
 export type ListAvfoundationDevicesResult =
@@ -87,6 +91,16 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.on('recording:ended', handler)
     return () => {
       ipcRenderer.removeListener('recording:ended', handler)
+    }
+  },
+
+  onRecordingGcsUpload: (callback: (payload: RecordingGcsUploadPayload) => void): (() => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, payload: RecordingGcsUploadPayload) => {
+      callback(payload)
+    }
+    ipcRenderer.on('recording:gcs-upload', handler)
+    return () => {
+      ipcRenderer.removeListener('recording:gcs-upload', handler)
     }
   },
 })

@@ -2,13 +2,24 @@ import { existsSync, mkdirSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { spawn, execFileSync, type ChildProcess } from 'node:child_process'
-import { app, BrowserWindow, ipcMain, shell, Tray, Menu, nativeImage } from 'electron'
+import dotenv from 'dotenv'
+import { app, BrowserWindow, clipboard, ipcMain, shell, Tray, Menu, nativeImage } from 'electron'
 import { destroyCountdownOverlay, registerCountdownOverlayIpc } from './countdown-overlay'
+import { uploadRecordingToGcs } from './gcs-upload'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
 const appRoot = path.join(__dirname, '..')
 process.env.APP_ROOT = appRoot
+
+// Repo `.env` for local dev; optional `userData/.env` overrides (useful for installed builds).
+dotenv.config({ path: path.join(appRoot, '.env') })
+dotenv.config({ path: path.join(app.getPath('userData'), '.env'), override: true })
+
+// Default bucket by run mode if unset (repo `.env` is not shipped in the DMG; see `.env.example`).
+if (!process.env.GCS_BUCKET?.trim()) {
+  process.env.GCS_BUCKET = app.isPackaged ? 'screen-record' : 'screen-record-dev'
+}
 
 const viteDevServerUrl = process.env.VITE_DEV_SERVER_URL
 const rendererDist = path.join(appRoot, 'dist')
@@ -326,11 +337,31 @@ ipcMain.handle(
       if (ffmpegChild === child) {
         ffmpegChild = null
       }
-      if (existsSync(outputPath)) {
-        shell.showItemInFolder(outputPath)
-      }
       forwardRecordingEnded(sender, { code, signal })
       updateTrayMenu()
+
+      void (async () => {
+        if (!existsSync(outputPath)) {
+          if (!sender.isDestroyed()) {
+            sender.send('recording:gcs-upload', {
+              ok: false,
+              error: 'Output file was not found after recording stopped.',
+              outputPath,
+            })
+          }
+          return
+        }
+        const result = await uploadRecordingToGcs(outputPath)
+        if (sender.isDestroyed()) return
+        if (result.ok) {
+          clipboard.writeText(result.url)
+        }
+        sender.send('recording:gcs-upload', {
+          ok: result.ok,
+          outputPath,
+          ...(result.ok ? { url: result.url } : { error: result.error }),
+        })
+      })()
     })
 
     updateTrayMenu()

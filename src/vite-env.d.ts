@@ -4,6 +4,7 @@ import type {
   ElectronOverlayAPI,
   ListAvfoundationDevicesResult,
   RecordingEndedPayload,
+  RecordingGcsUploadPayload,
   RevealInFinderResult,
   ResolveFfmpegResult,
   StartRecordingResult,
@@ -22,6 +23,7 @@ declare global {
       revealInFinder: (filePath: string) => Promise<RevealInFinderResult>
       onRecordingStderr: (callback: (chunk: string) => void) => () => void
       onRecordingEnded: (callback: (payload: RecordingEndedPayload) => void) => () => void
+      onRecordingGcsUpload: (callback: (payload: RecordingGcsUploadPayload) => void) => () => void
     }
   }
 }
