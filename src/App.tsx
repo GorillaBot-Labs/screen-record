@@ -58,24 +58,6 @@ function sortByIndex(devices: AvfoundationDevice[]): AvfoundationDevice[] {
   return [...devices].sort((a, b) => a.index - b.index)
 }
 
-/** Resolves when `ms` elapses or `shouldSkip()` becomes true (checked every ~50ms). */
-function waitSkippable(ms: number, shouldSkip: () => boolean): Promise<void> {
-  const step = 50
-  let elapsed = 0
-  return new Promise((resolve) => {
-    function tick() {
-      if (shouldSkip() || elapsed >= ms) {
-        resolve()
-        return
-      }
-      const chunk = Math.min(step, ms - elapsed)
-      elapsed += chunk
-      setTimeout(tick, chunk)
-    }
-    tick()
-  })
-}
-
 export default function App() {
   const [ffmpegInfo, setFfmpegInfo] = useState<string>('…')
   const [log, setLog] = useState<string>('')
@@ -95,7 +77,8 @@ export default function App() {
   const [shareError, setShareError] = useState<string | null>(null)
   /** 3 → 2 → 1 fullscreen overlay before recording; `null` when hidden. */
   const [countdown, setCountdown] = useState<number | null>(null)
-  const countdownSkipRequestedRef = useRef(false)
+  /** Blocks overlapping start/countdown; avoids depending on `countdown` in `handleStart` deps (tray listener stability). */
+  const startRecordingSequenceRef = useRef(false)
   const logRef = useRef<string>('')
   const outputPathRef = useRef<string | null>(null)
   outputPathRef.current = outputPath
@@ -203,7 +186,7 @@ export default function App() {
       setStatus('Already recording.')
       return
     }
-    if (countdown !== null) {
+    if (startRecordingSequenceRef.current) {
       setStatus('Countdown already in progress.')
       return
     }
@@ -226,62 +209,57 @@ export default function App() {
 
     setFinderHint(null)
 
-    setCountdown(3)
-    const overlayRes = await api.overlay.open(3)
-    if (!overlayRes.ok) {
-      setCountdown(null)
-      setStatus(`Could not open countdown overlay: ${overlayRes.error}`)
-      return
-    }
-
-    const minRes = await api.minimizeWindow()
-    if (!minRes.ok) {
-      setStatus(`Could not minimize window: ${minRes.error}`)
-    }
-
-    countdownSkipRequestedRef.current = false
-    const offSkip = api.onCountdownSkip(() => {
-      countdownSkipRequestedRef.current = true
-    })
-    const shouldSkip = () => countdownSkipRequestedRef.current
-
+    startRecordingSequenceRef.current = true
+    let minRes: { ok: true } | { ok: false; error: string } = { ok: true }
     try {
+      setCountdown(3)
+      const overlayRes = await api.overlay.open(3)
+      if (!overlayRes.ok) {
+        setCountdown(null)
+        setStatus(`Could not open countdown overlay: ${overlayRes.error}`)
+        return
+      }
+
+      minRes = await api.minimizeWindow()
+      if (!minRes.ok) {
+        setStatus(`Could not minimize window: ${minRes.error}`)
+      }
+
       let shown = 3
       while (shown > 0) {
-        await waitSkippable(1000, shouldSkip)
-        if (shouldSkip()) break
+        const { skipped } = await api.countdownWaitMs(1000)
+        if (skipped) break
         shown -= 1
         if (shown > 0) {
           setCountdown(shown)
           await api.overlay.setValue(shown)
         }
       }
+
+      await api.overlay.close()
+      setCountdown(null)
+
+      logRef.current = ''
+      setLog('')
+      setStatus('Starting…')
+      const input = `${videoIndex}:${audioIndex}`
+      const res = await api.startRecording({ avfoundationInput: input })
+      if (res.ok) {
+        setRecording(true)
+        setOutputPath(res.outputPath)
+        setShareUrl(null)
+        setShareError(null)
+        setCloudUploading(false)
+        setStatus(minRes.ok ? 'Recording' : 'Recording (window was not minimized)')
+      } else {
+        setStatus(`Start failed: ${res.error}`)
+      }
     } finally {
-      offSkip()
-    }
-
-    await api.overlay.close()
-    setCountdown(null)
-
-    logRef.current = ''
-    setLog('')
-    setStatus('Starting…')
-    const input = `${videoIndex}:${audioIndex}`
-    const res = await api.startRecording({ avfoundationInput: input })
-    if (res.ok) {
-      setRecording(true)
-      setOutputPath(res.outputPath)
-      setShareUrl(null)
-      setShareError(null)
-      setCloudUploading(false)
-      setStatus(minRes.ok ? 'Recording' : 'Recording (window was not minimized)')
-    } else {
-      setStatus(`Start failed: ${res.error}`)
+      startRecordingSequenceRef.current = false
     }
   }, [
     audioDevices.length,
     audioIndex,
-    countdown,
     devicesError,
     devicesLoading,
     recording,

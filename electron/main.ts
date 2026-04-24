@@ -4,11 +4,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { spawn, execFileSync, type ChildProcess } from 'node:child_process'
 import { app, BrowserWindow, clipboard, ipcMain, shell, Tray, Menu, nativeImage } from 'electron'
-import {
-  destroyCountdownOverlay,
-  registerCountdownOverlayIpc,
-  setOverlaySkipNotifyTarget,
-} from './countdown-overlay'
+import { destroyCountdownOverlay, registerCountdownOverlayIpc } from './countdown-overlay'
 import { uploadRecordingToGcs } from './gcs-upload'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -169,12 +165,9 @@ function createWindow() {
   })
 
   mainWindow.on('closed', () => {
-    setOverlaySkipNotifyTarget(null)
     mainWindow = null
     destroyCountdownOverlay()
   })
-
-  setOverlaySkipNotifyTarget(mainWindow)
 
   if (viteDevServerUrl) {
     mainWindow.loadURL(viteDevServerUrl)

@@ -34,7 +34,7 @@ export type ElectronOverlayAPI = {
   setValue: (value: number) => Promise<void>
   close: () => Promise<void>
   onCountdown: (callback: (value: number) => void) => () => void
-  /** User clicked “Skip” on the fullscreen overlay; main window should end the countdown early. */
+  /** User clicked “Skip”; main process ends `countdownWaitMs` early. */
   requestSkip: () => void
 }
 
@@ -60,6 +60,10 @@ const overlay: ElectronOverlayAPI = {
 contextBridge.exposeInMainWorld('electronAPI', {
   minimizeWindow: (): Promise<{ ok: true } | { ok: false; error: string }> =>
     ipcRenderer.invoke('window:minimize'),
+
+  /** Waits in the main process so delays stay accurate while the window is minimized. */
+  countdownWaitMs: (ms: number): Promise<{ skipped: boolean }> =>
+    ipcRenderer.invoke('countdown:wait-ms', ms),
 
   overlay,
 
@@ -106,16 +110,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.on('recording:gcs-upload', handler)
     return () => {
       ipcRenderer.removeListener('recording:gcs-upload', handler)
-    }
-  },
-
-  onCountdownSkip: (callback: () => void): (() => void) => {
-    const handler = () => {
-      callback()
-    }
-    ipcRenderer.on('countdown:skip', handler)
-    return () => {
-      ipcRenderer.removeListener('countdown:skip', handler)
     }
   },
 

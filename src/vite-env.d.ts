@@ -15,6 +15,7 @@ declare global {
   interface Window {
     electronAPI?: {
       minimizeWindow: () => Promise<{ ok: true } | { ok: false; error: string }>
+      countdownWaitMs: (ms: number) => Promise<{ skipped: boolean }>
       overlay: ElectronOverlayAPI
       resolveFfmpegPath: () => Promise<ResolveFfmpegResult>
       listAvfoundationDevices: () => Promise<ListAvfoundationDevicesResult>
@@ -24,7 +25,6 @@ declare global {
       onRecordingStderr: (callback: (chunk: string) => void) => () => void
       onRecordingEnded: (callback: (payload: RecordingEndedPayload) => void) => () => void
       onRecordingGcsUpload: (callback: (payload: RecordingGcsUploadPayload) => void) => () => void
-      onCountdownSkip: (callback: () => void) => () => void
       onTrayStartRecordingRequest: (callback: () => void) => () => void
     }
   }

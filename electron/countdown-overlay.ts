@@ -11,14 +11,13 @@ let paths: CountdownOverlayPaths | null = null
 let overlayWindow: BrowserWindow | null = null
 /** Consumed by the `overlay:pull-initial` handler after the overlay page loads. */
 let overlayPendingInitial: number | null = null
-/** Main app window that owns the countdown loop; receives `countdown:skip`. */
-let overlaySkipNotifyTarget: BrowserWindow | null = null
+/**
+ * Skip is handled in the main process so countdown delays stay accurate while the
+ * main BrowserWindow is minimized (Chromium heavily throttles renderer timers).
+ */
+let overlayCountdownSkipRequested = false
 
 let ipcRegistered = false
-
-export function setOverlaySkipNotifyTarget(win: BrowserWindow | null): void {
-  overlaySkipNotifyTarget = win
-}
 
 function unionDisplayBounds(): Electron.Rectangle {
   const displays = screen.getAllDisplays()
@@ -135,6 +134,7 @@ export function registerCountdownOverlayIpc(p: CountdownOverlayPaths): void {
       }
       try {
         destroyOverlayWindow()
+        overlayCountdownSkipRequested = false
         overlayPendingInitial = initial
         await createOverlayWindow()
         return { ok: true }
@@ -172,10 +172,24 @@ export function registerCountdownOverlayIpc(p: CountdownOverlayPaths): void {
     if (!overlayWindow || overlayWindow.isDestroyed() || event.sender !== overlayWindow.webContents) {
       return
     }
-    const target = overlaySkipNotifyTarget
-    if (target && !target.isDestroyed()) {
-      target.webContents.send('countdown:skip')
+    overlayCountdownSkipRequested = true
+  })
+
+  ipcMain.handle('countdown:wait-ms', async (_event, ms: unknown): Promise<{ skipped: boolean }> => {
+    if (typeof ms !== 'number' || !Number.isFinite(ms) || ms < 0 || ms > 120_000) {
+      return { skipped: overlayCountdownSkipRequested }
     }
+    const deadline = Date.now() + ms
+    while (Date.now() < deadline) {
+      if (overlayCountdownSkipRequested) {
+        return { skipped: true }
+      }
+      const remaining = deadline - Date.now()
+      await new Promise<void>((resolve) => {
+        setTimeout(resolve, Math.min(50, Math.max(1, remaining)))
+      })
+    }
+    return { skipped: overlayCountdownSkipRequested }
   })
 }
 
