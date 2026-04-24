@@ -10,6 +10,8 @@ export type StartRecordingResult =
 
 export type StopRecordingResult = { ok: true } | { ok: false; error: string }
 
+export type RevealInFinderResult = { ok: true } | { ok: false; error: string }
+
 export type RecordingEndedPayload = { code: number | null; signal: NodeJS.Signals | null }
 
 contextBridge.exposeInMainWorld('electronAPI', {
@@ -22,6 +24,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.invoke('recording:start', options ?? {}),
 
   stopRecording: (): Promise<StopRecordingResult> => ipcRenderer.invoke('recording:stop'),
+
+  revealInFinder: (filePath: string): Promise<RevealInFinderResult> =>
+    ipcRenderer.invoke('recording:revealInFinder', filePath),
 
   onRecordingStderr: (callback: (chunk: string) => void): (() => void) => {
     const handler = (_event: Electron.IpcRendererEvent, chunk: string) => {

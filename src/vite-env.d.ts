@@ -2,6 +2,7 @@
 
 import type {
   RecordingEndedPayload,
+  RevealInFinderResult,
   ResolveFfmpegResult,
   StartRecordingResult,
   StopRecordingResult,
@@ -13,6 +14,7 @@ declare global {
       resolveFfmpegPath: () => Promise<ResolveFfmpegResult>
       startRecording: (options?: { avfoundationInput?: string }) => Promise<StartRecordingResult>
       stopRecording: () => Promise<StopRecordingResult>
+      revealInFinder: (filePath: string) => Promise<RevealInFinderResult>
       onRecordingStderr: (callback: (chunk: string) => void) => () => void
       onRecordingEnded: (callback: (payload: RecordingEndedPayload) => void) => () => void
     }

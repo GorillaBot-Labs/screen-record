@@ -2,7 +2,7 @@ import { existsSync, mkdirSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { spawn, execFileSync, type ChildProcess } from 'node:child_process'
-import { app, BrowserWindow, ipcMain } from 'electron'
+import { app, BrowserWindow, ipcMain, shell } from 'electron'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -156,6 +156,30 @@ ipcMain.handle('recording:stop', async (): Promise<{ ok: true } | { ok: false; e
   child.kill('SIGINT')
   return { ok: true }
 })
+
+function isPathInsideRecordingsDir(filePath: string): boolean {
+  const abs = path.resolve(filePath)
+  const root = path.resolve(recordingsDir())
+  return abs === root || abs.startsWith(root + path.sep)
+}
+
+ipcMain.handle(
+  'recording:revealInFinder',
+  async (_event, filePath: unknown): Promise<{ ok: true } | { ok: false; error: string }> => {
+    if (typeof filePath !== 'string' || filePath.trim().length === 0) {
+      return { ok: false, error: 'Invalid path.' }
+    }
+    const abs = path.resolve(filePath.trim())
+    if (!isPathInsideRecordingsDir(abs)) {
+      return { ok: false, error: 'Path must be inside your Movies/recordings folder.' }
+    }
+    if (!existsSync(abs)) {
+      return { ok: false, error: 'File or folder not found.' }
+    }
+    shell.showItemInFolder(abs)
+    return { ok: true }
+  },
+)
 
 function stopRecordingOnQuit() {
   if (ffmpegChild && !ffmpegChild.killed) {

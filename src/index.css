@@ -24,8 +24,101 @@ h1 {
   margin: 0 0 1rem;
 }
 
+.field {
+  margin-bottom: 1.25rem;
+  max-width: 42rem;
+}
+
+.field label {
+  display: block;
+  font-size: 0.875rem;
+  font-weight: 600;
+  margin-bottom: 0.35rem;
+}
+
+.field input[type='text'] {
+  box-sizing: border-box;
+  width: 100%;
+  padding: 0.5rem 0.65rem;
+  font: inherit;
+  color: inherit;
+  background: #1e222a;
+  border: 1px solid #3c4048;
+  border-radius: 6px;
+}
+
+.field input[type='text']:disabled {
+  opacity: 0.65;
+}
+
+.hint {
+  font-size: 0.8125rem;
+  color: #9aa0a6;
+  margin: 0.4rem 0 0;
+}
+
+.hint.warn {
+  color: #f28b82;
+}
+
+.status {
+  margin: 0.75rem 0;
+}
+
+.actions {
+  margin: 0.5rem 0 1rem;
+}
+
+.actions button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.path-block {
+  margin: 1.25rem 0 1.5rem;
+  padding: 1rem 1rem 0.75rem;
+  background: #1a1d24;
+  border: 1px solid #2d3139;
+  border-radius: 8px;
+  max-width: 42rem;
+}
+
+.path-heading,
+.log-heading {
+  margin: 0 0 0.5rem;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: #bdc1c6;
+}
+
+.path-line {
+  margin: 0 0 0.5rem;
+  word-break: break-all;
+}
+
+.path-line code {
+  font-size: 0.8125rem;
+}
+
+.path-placeholder {
+  margin: 0 0 0.5rem;
+}
+
 code {
   background: #1e222a;
   padding: 0.15rem 0.4rem;
   border-radius: 4px;
+}
+
+.log {
+  margin: 0;
+  padding: 0.75rem;
+  max-height: 14rem;
+  overflow: auto;
+  font-size: 0.75rem;
+  line-height: 1.45;
+  background: #0d0f12;
+  border: 1px solid #2d3139;
+  border-radius: 6px;
+  white-space: pre-wrap;
 }
