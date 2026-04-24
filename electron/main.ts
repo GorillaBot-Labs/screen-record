@@ -23,9 +23,9 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const appRoot = path.join(__dirname, '..')
 process.env.APP_ROOT = appRoot
 
-// Default bucket by run mode if unset (override anytime with `GCS_BUCKET` in the process environment).
+// Default bucket if unset (override with `GCS_BUCKET` for another bucket).
 if (!process.env.GCS_BUCKET?.trim()) {
-  process.env.GCS_BUCKET = app.isPackaged ? 'screen-record' : 'screen-record-dev'
+  process.env.GCS_BUCKET = 'screen-record'
 }
 
 // GCP service account JSON — fixed path under home; create `~/.screen-record/` and drop `gcp-credentials.json` there.

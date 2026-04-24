@@ -8,8 +8,6 @@
     "dev": "vite",
     "build": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.node.json && vite build",
     "build:mac": "npm run build && electron-builder --mac",
-    "install:mac": "node scripts/install-mac-release.mjs",
-    "deploy": "npm run build:mac && npm run install:mac",
     "start": "electron .",
     "preview": "vite preview"
   },

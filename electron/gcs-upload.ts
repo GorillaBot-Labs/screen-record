@@ -18,7 +18,7 @@ const GCS_OBJECT_PREFIX = 'recordings'
  *    Creator** on the bucket)—not `setIamPolicy`.
  *
  * Configure:
- * - `GCS_BUCKET` — bucket name (required; main sets a default from packaged vs dev if unset).
+ * - `GCS_BUCKET` — bucket name (required; main defaults to `screen-record` if unset).
  * - Auth: main sets `GOOGLE_APPLICATION_CREDENTIALS` to `~/.screen-record/gcp-credentials.json`.
  */
 export async function uploadRecordingToGcs(
