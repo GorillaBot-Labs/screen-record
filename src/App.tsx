@@ -94,7 +94,6 @@ export default function App() {
   const [devicesError, setDevicesError] = useState<string | null>(null)
   const [outputPath, setOutputPath] = useState<string | null>(null)
   const [recording, setRecording] = useState(false)
-  const [finderHint, setFinderHint] = useState<string | null>(null)
   /** After ffmpeg exits: upload to GCS until we get `recording:gcs-upload`. */
   const [cloudUploading, setCloudUploading] = useState(false)
   const [shareUrl, setShareUrl] = useState<string | null>(null)
@@ -181,7 +180,7 @@ export default function App() {
       } else {
         setShareUrl(null)
         setShareError(p.error)
-        setStatus('Temp recording file kept on disk; cloud upload failed.')
+        setStatus('Cloud upload failed.')
       }
     })
 
@@ -230,8 +229,6 @@ export default function App() {
       setStatus('Choose video and audio devices in the app first.')
       return
     }
-
-    setFinderHint(null)
 
     startRecordingSequenceRef.current = true
     let minRes: { ok: true } | { ok: false; error: string } = { ok: true }
@@ -310,16 +307,6 @@ export default function App() {
       setStatus('Stop sent (SIGINT); wait for ffmpeg to finalize…')
     } else {
       setStatus(res.error)
-    }
-  }
-
-  async function handleRevealInFinder() {
-    const api = window.electronAPI
-    if (!api || !outputPath) return
-    setFinderHint(null)
-    const res = await api.revealInFinder(outputPath)
-    if (!res.ok) {
-      setFinderHint(res.error)
     }
   }
 
@@ -461,56 +448,32 @@ export default function App() {
             ) : null}
           </div>
 
-          <section className="app-card" aria-label="Recording output">
+          <section className="app-card" aria-labelledby="share-heading">
             <div className="app-card-header">
-              <h2 className="app-card-title">After recording</h2>
+              <h2 id="share-heading" className="app-card-title">
+                Share link
+              </h2>
             </div>
-            <div className="output-stack">
-              <div className="output-block">
-                <h3>Local file</h3>
-                {outputPath ? (
-                  <>
-                    <p className="hint hint-flush">
-                      Temp path while recording or if upload fails; removed after a successful upload.
-                    </p>
-                    <p className="path-line">
-                      <code>{outputPath}</code>
-                    </p>
-                    <div className="inline-actions">
-                      <button type="button" className="btn btn-outline" onClick={() => void handleRevealInFinder()}>
-                        Show in Finder
-                      </button>
-                    </div>
-                    {finderHint ? <p className="hint warn">{finderHint}</p> : null}
-                  </>
-                ) : (
-                  <p className="path-placeholder">
-                    While recording, output is written under your temp folder, then uploaded to Google Cloud.
+            <div className="app-card-body">
+              {cloudUploading ? <p className="hint">Uploading to Google Cloud…</p> : null}
+              {shareError ? <p className="hint warn">{shareError}</p> : null}
+              {shareUrl ? (
+                <>
+                  <p className="hint hint-flush">
+                    The link was copied when upload finished. You can copy it again below.
                   </p>
-                )}
-              </div>
-              <div className="output-block">
-                <h3>Share link</h3>
-                {cloudUploading ? <p className="hint">Uploading to Google Cloud…</p> : null}
-                {shareError ? <p className="hint warn">{shareError}</p> : null}
-                {shareUrl ? (
-                  <>
-                    <p className="hint hint-flush">
-                      The link was copied when upload finished. You can copy it again below.
-                    </p>
-                    <p className="path-line">
-                      <code className="share-url">{shareUrl}</code>
-                    </p>
-                    <div className="inline-actions">
-                      <button type="button" className="btn btn-outline" onClick={() => void handleCopyShareLink()}>
-                        Copy link
-                      </button>
-                    </div>
-                  </>
-                ) : !cloudUploading && !shareError ? (
-                  <p className="path-placeholder">When a recording ends, a public link from your GCS bucket appears here.</p>
-                ) : null}
-              </div>
+                  <p className="path-line">
+                    <code className="share-url">{shareUrl}</code>
+                  </p>
+                  <div className="inline-actions">
+                    <button type="button" className="btn btn-outline" onClick={() => void handleCopyShareLink()}>
+                      Copy link
+                    </button>
+                  </div>
+                </>
+              ) : !cloudUploading && !shareError ? (
+                <p className="path-placeholder">When a recording ends, a public link from your GCS bucket appears here.</p>
+              ) : null}
             </div>
           </section>
 
