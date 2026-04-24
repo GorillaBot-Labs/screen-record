@@ -16,6 +16,7 @@ import {
 } from 'electron'
 import { destroyCountdownOverlay, registerCountdownOverlayIpc } from './countdown-overlay'
 import { uploadRecordingToGcs } from './gcs-upload'
+import { readRecentRecordingUrls, recordSuccessfulUploadUrl } from './recent-recordings'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -400,6 +401,7 @@ ipcMain.handle(
         if (sender.isDestroyed()) return
         let localFileDeleted = false
         if (result.ok) {
+          recordSuccessfulUploadUrl(result.url)
           clipboard.writeText(result.url)
           notifyShareLinkCopied()
           try {
@@ -438,6 +440,42 @@ ipcMain.handle('recording:stop', async (): Promise<{ ok: true } | { ok: false; e
   }
   return res
 })
+
+ipcMain.handle('recordings:listRecent', (): { urls: string[] } => {
+  return { urls: readRecentRecordingUrls() }
+})
+
+function isSafeHttpsRecordingUrl(url: string): boolean {
+  try {
+    const u = new URL(url)
+    if (u.protocol !== 'https:') return false
+    if (u.hostname === 'storage.googleapis.com') return true
+    if (u.hostname.endsWith('.storage.googleapis.com')) return true
+    return false
+  } catch {
+    return false
+  }
+}
+
+ipcMain.handle(
+  'shell:openExternal',
+  async (_event, url: unknown): Promise<{ ok: true } | { ok: false; error: string }> => {
+    if (typeof url !== 'string' || url.trim().length === 0) {
+      return { ok: false, error: 'Invalid URL.' }
+    }
+    const trimmed = url.trim()
+    if (!isSafeHttpsRecordingUrl(trimmed)) {
+      return { ok: false, error: 'Only HTTPS storage links can be opened from here.' }
+    }
+    try {
+      await shell.openExternal(trimmed)
+      return { ok: true }
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e)
+      return { ok: false, error: msg }
+    }
+  },
+)
 
 function isPathInsideRecordingStagingDir(filePath: string): boolean {
   const abs = path.resolve(filePath)

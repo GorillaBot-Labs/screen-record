@@ -26,6 +26,10 @@ export type ListAvfoundationDevicesResult =
 
 export type OpenCountdownOverlayResult = { ok: true } | { ok: false; error: string }
 
+export type ListRecentRecordingsResult = { urls: string[] }
+
+export type OpenExternalUrlResult = { ok: true } | { ok: false; error: string }
+
 /** Full-screen countdown overlay window (see `overlay.html` / `src/overlay.tsx`). */
 export type ElectronOverlayAPI = {
   open: (initial: number) => Promise<OpenCountdownOverlayResult>
@@ -79,6 +83,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.invoke('recording:start', options ?? {}),
 
   stopRecording: (): Promise<StopRecordingResult> => ipcRenderer.invoke('recording:stop'),
+
+  listRecentRecordings: (): Promise<ListRecentRecordingsResult> =>
+    ipcRenderer.invoke('recordings:listRecent'),
+
+  openExternalUrl: (url: string): Promise<OpenExternalUrlResult> =>
+    ipcRenderer.invoke('shell:openExternal', url),
 
   revealInFinder: (filePath: string): Promise<RevealInFinderResult> =>
     ipcRenderer.invoke('recording:revealInFinder', filePath),

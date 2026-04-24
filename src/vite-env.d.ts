@@ -3,6 +3,8 @@
 import type {
   ElectronOverlayAPI,
   ListAvfoundationDevicesResult,
+  ListRecentRecordingsResult,
+  OpenExternalUrlResult,
   RecordingEndedPayload,
   RecordingGcsUploadPayload,
   RevealInFinderResult,
@@ -21,6 +23,8 @@ declare global {
       listAvfoundationDevices: () => Promise<ListAvfoundationDevicesResult>
       startRecording: (options?: { avfoundationInput?: string }) => Promise<StartRecordingResult>
       stopRecording: () => Promise<StopRecordingResult>
+      listRecentRecordings: () => Promise<ListRecentRecordingsResult>
+      openExternalUrl: (url: string) => Promise<OpenExternalUrlResult>
       revealInFinder: (filePath: string) => Promise<RevealInFinderResult>
       onRecordingStderr: (callback: (chunk: string) => void) => () => void
       onRecordingEnded: (callback: (payload: RecordingEndedPayload) => void) => () => void

@@ -82,6 +82,17 @@ function statusToneClass(params: {
   return 'app-status'
 }
 
+function recordingTitleFromUrl(url: string): string {
+  try {
+    const name = decodeURIComponent(new URL(url).pathname.split('/').pop() ?? '')
+    if (!name) return 'Recording'
+    const withoutExt = name.replace(/\.mp4$/i, '')
+    return withoutExt.length > 0 ? withoutExt : name
+  } catch {
+    return 'Recording'
+  }
+}
+
 export default function App() {
   const [ffmpegInfo, setFfmpegInfo] = useState<string>('…')
   const [log, setLog] = useState<string>('')
@@ -98,6 +109,8 @@ export default function App() {
   const [cloudUploading, setCloudUploading] = useState(false)
   const [shareUrl, setShareUrl] = useState<string | null>(null)
   const [shareError, setShareError] = useState<string | null>(null)
+  /** Last up to five successful upload URLs (persisted under ~/.screen-record). */
+  const [recentUrls, setRecentUrls] = useState<string[]>([])
   /** 3 → 2 → 1 fullscreen overlay before recording; `null` when hidden. */
   const [countdown, setCountdown] = useState<number | null>(null)
   /** Blocks overlapping start/countdown; avoids depending on `countdown` in `handleStart` deps (tray listener stability). */
@@ -143,6 +156,13 @@ export default function App() {
     applyDeviceSelection(video, audio)
   }, [applyDeviceSelection])
 
+  const refreshRecentRecordings = useCallback(async () => {
+    const api = window.electronAPI
+    if (!api) return
+    const { urls } = await api.listRecentRecordings()
+    setRecentUrls(urls)
+  }, [])
+
   useEffect(() => {
     const api = window.electronAPI
     if (!api) {
@@ -155,6 +175,7 @@ export default function App() {
     })
 
     void refreshDevices()
+    void refreshRecentRecordings()
 
     const offStderr = api.onRecordingStderr((chunk) => {
       logRef.current += chunk
@@ -174,6 +195,7 @@ export default function App() {
         setShareUrl(p.url)
         setShareError(null)
         setStatus('Recording uploaded. Share link copied to the clipboard.')
+        void refreshRecentRecordings()
         if (p.localFileDeleted) {
           setOutputPath(null)
         }
@@ -189,7 +211,7 @@ export default function App() {
       offEnded()
       offGcs()
     }
-  }, [refreshDevices])
+  }, [refreshDevices, refreshRecentRecordings])
 
   function handleVideoChange(index: number) {
     setVideoIndex(index)
@@ -316,6 +338,24 @@ export default function App() {
       await navigator.clipboard.writeText(shareUrl)
     } catch {
       /* user can select the link in the UI */
+    }
+  }
+
+  async function handleCopyRecordingUrl(url: string) {
+    try {
+      await navigator.clipboard.writeText(url)
+      setStatus('Link copied to the clipboard.')
+    } catch {
+      setStatus('Could not copy automatically—select the link text below.')
+    }
+  }
+
+  async function handleOpenRecordingUrl(url: string) {
+    const api = window.electronAPI
+    if (!api) return
+    const res = await api.openExternalUrl(url)
+    if (!res.ok) {
+      setStatus(`Could not open link: ${res.error}`)
     }
   }
 
@@ -447,6 +487,60 @@ export default function App() {
               </p>
             ) : null}
           </div>
+
+          {hasBridge ? (
+            <section className="app-card" aria-labelledby="recent-heading">
+              <div className="app-card-header">
+                <h2 id="recent-heading" className="app-card-title">
+                  Recent uploads
+                </h2>
+                <button
+                  type="button"
+                  className="btn btn-ghost"
+                  onClick={() => void refreshRecentRecordings()}
+                  disabled={recording || uiLockedForCountdown}
+                >
+                  Refresh
+                </button>
+              </div>
+              <div className="app-card-body">
+                {recentUrls.length === 0 ? (
+                  <p className="hint hint-flush">
+                    Up to five successful uploads from this Mac are kept here. Finish a recording to build the list.
+                  </p>
+                ) : (
+                  <ul className="recent-list" role="list">
+                    {recentUrls.map((url) => (
+                      <li key={url} className="recent-item">
+                        <div className="recent-item-main">
+                          <span className="recent-item-title">{recordingTitleFromUrl(url)}</span>
+                          <code className="recent-item-url" title={url}>
+                            {url}
+                          </code>
+                        </div>
+                        <div className="recent-item-actions">
+                          <button
+                            type="button"
+                            className="btn btn-outline btn-compact"
+                            onClick={() => void handleCopyRecordingUrl(url)}
+                          >
+                            Copy link
+                          </button>
+                          <button
+                            type="button"
+                            className="btn btn-outline btn-compact"
+                            onClick={() => void handleOpenRecordingUrl(url)}
+                          >
+                            Open in browser
+                          </button>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            </section>
+          ) : null}
 
           <section className="app-card" aria-labelledby="share-heading">
             <div className="app-card-header">
