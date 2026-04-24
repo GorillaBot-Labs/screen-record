@@ -1,7 +1,10 @@
 import { prisma } from "@/lib/prisma";
+import { GallerySignOut } from "./components/GallerySignOut";
 import { RecordingCard } from "./components/RecordingCard";
 
 export const dynamic = "force-dynamic";
+
+const hasGalleryAuth = Boolean(process.env.INTERNAL_GALLERY_SECRET?.trim());
 
 async function loadRecordings() {
   try {
@@ -22,9 +25,12 @@ export default async function Home() {
     <div className="min-h-full bg-stone-50 text-stone-900 dark:bg-zinc-950 dark:text-zinc-50">
       <header className="border-b border-stone-200/80 bg-white/80 backdrop-blur-sm dark:border-zinc-800 dark:bg-zinc-950/80">
         <div className="mx-auto flex max-w-6xl flex-col gap-1 px-4 py-8 sm:px-6 lg:px-8">
-          <h1 className="text-2xl font-semibold tracking-tight text-stone-900 dark:text-zinc-50">
-            Recordings
-          </h1>
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <h1 className="text-2xl font-semibold tracking-tight text-stone-900 dark:text-zinc-50">
+              Recordings
+            </h1>
+            {hasGalleryAuth ? <GallerySignOut /> : null}
+          </div>
           <p className="max-w-2xl text-sm text-stone-600 dark:text-zinc-400">
             Internal gallery. Videos stream from stored public URLs; run reconcile to sync the catalog from
             GCS.
