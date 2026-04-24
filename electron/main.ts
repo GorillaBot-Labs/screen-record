@@ -43,6 +43,9 @@ registerCountdownOverlayIpc({
 let mainWindow: BrowserWindow | null = null
 let tray: Tray | null = null
 
+let recordingStartedAtMs: number | null = null
+let trayRecordingTick: ReturnType<typeof setInterval> | null = null
+
 /** Default `displayIndex:audioIndex` when the renderer omits `captureInput`. */
 const DEFAULT_CAPTURE_INPUT = '0:0'
 
@@ -122,6 +125,56 @@ function trayIconImage(): Electron.NativeImage {
   return empty
 }
 
+function clearTrayRecordingTick() {
+  if (trayRecordingTick) {
+    clearInterval(trayRecordingTick)
+    trayRecordingTick = null
+  }
+}
+
+/** `mm:ss` or `h:mm:ss` for the tray title / tooltip while recording. */
+function formatRecordingElapsed(ms: number): string {
+  const totalSec = Math.max(0, Math.floor(ms / 1000))
+  const h = Math.floor(totalSec / 3600)
+  const m = Math.floor((totalSec % 3600) / 60)
+  const s = totalSec % 60
+  if (h > 0) {
+    return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
+  }
+  return `${m}:${String(s).padStart(2, '0')}`
+}
+
+function applyTrayRecordingPresentation() {
+  if (!tray) return
+  const active = Boolean(recordingChild && !recordingChild.killed)
+  if (!active || recordingStartedAtMs == null) {
+    tray.setToolTip('Screen Record')
+    if (process.platform === 'darwin') {
+      tray.setTitle('')
+    }
+    return
+  }
+  const elapsed = Date.now() - recordingStartedAtMs
+  const dur = formatRecordingElapsed(elapsed)
+  tray.setToolTip(`Recording — ${dur}`)
+  if (process.platform === 'darwin') {
+    tray.setTitle(` \u25CF ${dur}`)
+  }
+}
+
+function startTrayRecordingPresentation() {
+  recordingStartedAtMs = Date.now()
+  clearTrayRecordingTick()
+  applyTrayRecordingPresentation()
+  trayRecordingTick = setInterval(applyTrayRecordingPresentation, 1000)
+}
+
+function stopTrayRecordingPresentation() {
+  clearTrayRecordingTick()
+  recordingStartedAtMs = null
+  applyTrayRecordingPresentation()
+}
+
 function createTray() {
   if (tray) return
   const icon = trayIconImage()
@@ -155,38 +208,45 @@ function sendTrayStartRecordingToRenderer() {
 function updateTrayMenu() {
   if (!tray) return
   const recording = Boolean(recordingChild && !recordingChild.killed)
-  tray.setContextMenu(
-    Menu.buildFromTemplate([
-      {
-        label: 'Open Screen Record',
-        click: () => {
-          showMainWindow()
-        },
+  const template: Electron.MenuItemConstructorOptions[] = []
+  if (recording) {
+    template.push({
+      label: '● Recording',
+      enabled: false,
+    })
+    template.push({ type: 'separator' })
+  }
+  template.push(
+    {
+      label: 'Open Screen Record',
+      click: () => {
+        showMainWindow()
       },
-      { type: 'separator' },
-      {
-        label: 'Start Recording',
-        enabled: !recording,
-        click: () => {
-          void sendTrayStartRecordingToRenderer()
-        },
+    },
+    { type: 'separator' },
+    {
+      label: 'Start Recording',
+      enabled: !recording,
+      click: () => {
+        void sendTrayStartRecordingToRenderer()
       },
-      {
-        label: 'Stop Recording',
-        enabled: recording,
-        click: () => {
-          void stopRecordingChild()
-        },
+    },
+    {
+      label: 'Stop Recording',
+      enabled: recording,
+      click: () => {
+        void stopRecordingChild()
       },
-      { type: 'separator' },
-      {
-        label: 'Quit',
-        click: () => {
-          app.quit()
-        },
+    },
+    { type: 'separator' },
+    {
+      label: 'Quit',
+      click: () => {
+        app.quit()
       },
-    ]),
+    },
   )
+  tray.setContextMenu(Menu.buildFromTemplate(template))
 }
 
 function showMainWindow() {
@@ -324,6 +384,7 @@ ipcMain.handle(
     )
 
     recordingChild = child
+    startTrayRecordingPresentation()
 
     const sender = event.sender
     forwardStderrToRenderer(sender, 'Using ScreenCaptureKit (sck-record).\n')
@@ -336,6 +397,7 @@ ipcMain.handle(
         recordingChild = null
       }
       forwardStderrToRenderer(sender, `Recorder process error: ${err.message}\n`)
+      stopTrayRecordingPresentation()
       updateTrayMenu()
       showMainWindow()
     })
@@ -344,6 +406,7 @@ ipcMain.handle(
       if (recordingChild === child) {
         recordingChild = null
       }
+      stopTrayRecordingPresentation()
       forwardRecordingEnded(sender, { code, signal })
       updateTrayMenu()
       showMainWindow()
