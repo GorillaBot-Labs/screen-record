@@ -2,7 +2,6 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import type {
   CaptureDevice,
-  CaptureDisplayScreenshotResult,
 } from "../electron/preload";
 
 const VIDEO_INDEX_STORAGE_KEY = "screen-record:avVideoIndex";
@@ -133,21 +132,8 @@ export default function App() {
   const [audioDevices, setAudioDevices] = useState<CaptureDevice[]>([]);
   const [videoIndex, setVideoIndex] = useState<number | null>(null);
   const [audioIndex, setAudioIndex] = useState<number | null>(null);
-  const [displayPreview, setDisplayPreview] = useState<
-    | { kind: "loading"; index: number }
-    | { kind: "ready"; index: number; dataUrl: string; width: number; height: number }
-    | { kind: "error"; index: number; message: string }
-    | null
-  >(null);
   const [devicesLoading, setDevicesLoading] = useState(false);
   const [devicesError, setDevicesError] = useState<string | null>(null);
-  const [screenReadiness, setScreenReadiness] = useState<
-    | { kind: "unknown" }
-    | { kind: "checking" }
-    | { kind: "ready" }
-    | { kind: "unsupported"; message: string }
-    | { kind: "blocked"; message: string }
-  >({ kind: "unknown" });
   const [outputPath, setOutputPath] = useState<string | null>(null);
   const [recording, setRecording] = useState(false);
   const [recordingStartedAtMs, setRecordingStartedAtMs] = useState<number | null>(
@@ -237,110 +223,10 @@ export default function App() {
     applyDeviceSelection(video, audio);
   }, [applyDeviceSelection, pushDiagnosticsEvent]);
 
-  const refreshDisplayPreview = useCallback(
-    async (index: number) => {
-      type ElectronAPIWithScreenshot = NonNullable<typeof window.electronAPI> & {
-        captureDisplayScreenshot?: (
-          displayIdOrIndex: number,
-        ) => Promise<CaptureDisplayScreenshotResult>;
-      };
-      const api = window.electronAPI as ElectronAPIWithScreenshot | undefined;
-      if (!api?.captureDisplayScreenshot) return;
-      const device = videoDevices.find((d) => d.index === index);
-      const selector = device?.displayId ?? index;
-      const t0 = performance.now();
-      pushDiagnosticsEvent({
-        kind: "preview.refresh.start",
-        data: { index, selector },
-      });
-      setDisplayPreview({ kind: "loading", index });
-      const res = await api.captureDisplayScreenshot(selector);
-      if (res.ok) {
-        pushDiagnosticsEvent({
-          kind: "preview.refresh.ok",
-          data: {
-            index,
-            selector,
-            ms: Math.round(performance.now() - t0),
-            width: res.width,
-            height: res.height,
-          },
-        });
-        setDisplayPreview({
-          kind: "ready",
-          index,
-          dataUrl: `data:image/png;base64,${res.pngBase64}`,
-          width: res.width,
-          height: res.height,
-        });
-      } else {
-        pushDiagnosticsEvent({
-          kind: "preview.refresh.error",
-          message: res.error,
-          data: { index, selector, ms: Math.round(performance.now() - t0) },
-        });
-        setDisplayPreview({
-          kind: "error",
-          index,
-          message: res.error,
-        });
-      }
-    },
-    [pushDiagnosticsEvent, videoDevices],
-  );
-
-  const checkScreenRecordingReadiness = useCallback(
-    async (index: number) => {
-      const api = window.electronAPI;
-      if (!api?.captureDisplayScreenshot) return;
-      const device = videoDevices.find((d) => d.index === index);
-      const selector = device?.displayId ?? index;
-
-      setScreenReadiness({ kind: "checking" });
-      const t0 = performance.now();
-      pushDiagnosticsEvent({
-        kind: "permission.screen.check.start",
-        data: { index, selector },
-      });
-
-      const attempt = async () => api.captureDisplayScreenshot(selector);
-      const res1 = await attempt();
-      const res =
-        res1.ok ? res1 : await new Promise<CaptureDisplayScreenshotResult>((r) => {
-          window.setTimeout(() => {
-            void attempt().then(r);
-          }, 250);
-        });
-
-      if (res.ok) {
-        pushDiagnosticsEvent({
-          kind: "permission.screen.check.ok",
-          data: { index, selector, ms: Math.round(performance.now() - t0) },
-        });
-        setScreenReadiness({ kind: "ready" });
-      } else {
-        if (/requires macos 13\+/i.test(res.error) || /unsupported macos version/i.test(res.error)) {
-          pushDiagnosticsEvent({
-            kind: "permission.screen.check.unsupported",
-            message: res.error,
-            data: { index, selector, ms: Math.round(performance.now() - t0) },
-          });
-          setScreenReadiness({ kind: "unsupported", message: res.error });
-          return;
-        }
-        pushDiagnosticsEvent({
-          kind: "permission.screen.check.blocked",
-          message: res.error,
-          data: { index, selector, ms: Math.round(performance.now() - t0) },
-        });
-        setScreenReadiness({
-          kind: "blocked",
-          message: res.error,
-        });
-      }
-    },
-    [pushDiagnosticsEvent, videoDevices],
-  );
+  // Intentionally disabled: screenshot-based preview + readiness preflight.
+  // Some environments require Screen Recording permission to be granted to the exact
+  // Electron binary; probing for screenshots can be slow and confusing. We instead
+  // allow recording attempts and surface errors from the recorder process.
 
   const refreshRecentRecordings = useCallback(async () => {
     const api = window.electronAPI;
@@ -438,21 +324,7 @@ export default function App() {
     };
   }, [recording, recordingStartedAtMs]);
 
-  useEffect(() => {
-    if (!window.electronAPI) return;
-    if (videoIndex == null) return;
-    if (devicesLoading) return;
-    if (devicesError != null) return;
-    void refreshDisplayPreview(videoIndex);
-  }, [devicesError, devicesLoading, refreshDisplayPreview, videoIndex]);
-
-  useEffect(() => {
-    if (!window.electronAPI) return;
-    if (videoIndex == null) return;
-    if (devicesLoading) return;
-    if (devicesError != null) return;
-    void checkScreenRecordingReadiness(videoIndex);
-  }, [checkScreenRecordingReadiness, devicesError, devicesLoading, videoIndex]);
+  // Preview + readiness checks are disabled (see note above).
 
   function resolutionFromDeviceName(name: string): string | null {
     const m = /(\d{3,5})\s*[x×]\s*(\d{3,5})/.exec(name);
@@ -537,25 +409,6 @@ export default function App() {
       });
       return;
     }
-    if (screenReadiness.kind !== "ready") {
-      setStatus(
-        screenReadiness.kind === "blocked"
-          ? "Screen Recording permission is not ready yet. Open System Settings → Privacy & Security → Screen Recording, enable Screen Record, then click Recheck."
-          : "Checking Screen Recording permission…",
-      );
-      pushDiagnosticsEvent({
-        kind: "recording.start.blocked",
-        message:
-          screenReadiness.kind === "blocked"
-            ? "Screen Recording permission blocked"
-            : "Screen Recording permission checking",
-      });
-      if (videoIndex != null) {
-        void checkScreenRecordingReadiness(videoIndex);
-      }
-      return;
-    }
-
     startRecordingSequenceRef.current = true;
     let minRes: { ok: true } | { ok: false; error: string } = { ok: true };
     try {
@@ -639,11 +492,9 @@ export default function App() {
   }, [
     audioDevices.length,
     audioIndex,
-    checkScreenRecordingReadiness,
     devicesError,
     devicesLoading,
     recording,
-    screenReadiness.kind,
     videoDevices.length,
     videoIndex,
     pushDiagnosticsEvent,
@@ -754,7 +605,6 @@ export default function App() {
       `cloudUploading=${String(cloudUploading)}`,
       `devicesLoading=${String(devicesLoading)}`,
       `devicesError=${devicesError ?? ""}`,
-      `screenReadiness=${screenReadiness.kind}`,
       `videoDevices=${videoDevices.length}`,
       `audioDevices=${audioDevices.length}`,
       `videoIndex=${videoIndex ?? ""}`,
@@ -787,7 +637,6 @@ export default function App() {
     countdown === null &&
     !devicesLoading &&
     devicesError == null &&
-    screenReadiness.kind === "ready" &&
     videoIndex != null &&
     audioIndex != null &&
     videoDevices.length > 0 &&
@@ -927,88 +776,6 @@ export default function App() {
               </button>
             </div>
             <div className="app-card-body">
-              {hasBridge && !devicesLoading && devicesError == null ? (
-                <div
-                  className={
-                    screenReadiness.kind === "ready"
-                      ? "readiness readiness--ready"
-                      : screenReadiness.kind === "checking"
-                        ? "readiness readiness--checking"
-                        : screenReadiness.kind === "unsupported"
-                          ? "readiness readiness--blocked"
-                        : screenReadiness.kind === "blocked"
-                          ? "readiness readiness--blocked"
-                          : "readiness"
-                  }
-                  role="status"
-                  aria-live="polite"
-                >
-                  <div className="readiness-main">
-                    <div className="readiness-title">Screen Recording</div>
-                    <div className="readiness-sub">
-                      {screenReadiness.kind === "ready"
-                        ? "Ready"
-                        : screenReadiness.kind === "checking"
-                          ? "Checking…"
-                          : screenReadiness.kind === "unsupported"
-                            ? "Unsupported macOS"
-                          : screenReadiness.kind === "blocked"
-                            ? "Permission required"
-                            : "Not checked yet"}
-                    </div>
-                  </div>
-
-                  {screenReadiness.kind === "unsupported" ? (
-                    <p className="readiness-detail">
-                      This Mac’s OS version doesn’t support the capture pipeline used by Screen
-                      Record (ScreenCaptureKit). Upgrade to macOS 13+.
-                      <span className="readiness-detail-muted"> Error: {screenReadiness.message}</span>
-                    </p>
-                  ) : null}
-
-                  {screenReadiness.kind === "blocked" ? (
-                    <p className="readiness-detail">
-                      Grant permission in System Settings → Privacy &amp;
-                      Security → Screen Recording, then restart the app if macOS
-                      asks you to.
-                      <span className="readiness-detail-muted">
-                        {" "}
-                        Error: {screenReadiness.message}
-                      </span>
-                    </p>
-                  ) : null}
-
-                  <div className="readiness-actions">
-                    <button
-                      type="button"
-                      className="btn btn-outline btn-compact"
-                      onClick={() => void window.electronAPI?.openScreenRecordingSettings?.()}
-                      disabled={uiLockedForCountdown || recording}
-                    >
-                      Open System Settings
-                    </button>
-                    <button
-                      type="button"
-                      className="btn btn-ghost btn-compact"
-                      onClick={() => {
-                        if (videoIndex != null) {
-                          void checkScreenRecordingReadiness(videoIndex);
-                          void refreshDisplayPreview(videoIndex);
-                        }
-                      }}
-                      disabled={
-                        uiLockedForCountdown ||
-                        recording ||
-                        devicesLoading ||
-                        videoIndex == null ||
-                        screenReadiness.kind === "checking"
-                      }
-                    >
-                      Recheck
-                    </button>
-                  </div>
-                </div>
-              ) : null}
               {devicesLoading ? <p className="hint">Loading devices…</p> : null}
               {devicesError ? (
                 <p className="hint warn">{devicesError}</p>
@@ -1061,53 +828,7 @@ export default function App() {
                       })}
                     </div>
 
-                    {hasBridge && videoIndex != null ? (
-                      <div className="display-preview" aria-live="polite">
-                        <div className="display-preview-screen">
-                          {displayPreview?.kind === "loading" &&
-                          displayPreview.index === videoIndex ? (
-                            <p className="hint hint-flush display-preview-center">
-                              Loading preview…
-                            </p>
-                          ) : null}
-                          {displayPreview?.kind === "error" &&
-                          displayPreview.index === videoIndex ? (
-                            <p className="hint warn hint-flush display-preview-center">
-                              {displayPreview.message}
-                            </p>
-                          ) : null}
-                          {displayPreview?.kind === "ready" &&
-                          displayPreview.index === videoIndex ? (
-                            <img
-                              className="display-preview-image"
-                              src={displayPreview.dataUrl}
-                              alt="Screenshot of the selected display"
-                            />
-                          ) : null}
-                          {!displayPreview ? (
-                            <p className="hint hint-flush display-preview-center">
-                              Pick a display to see a preview.
-                            </p>
-                          ) : null}
-                        </div>
-
-                        <div className="display-preview-actions">
-                          <span className="display-preview-label">
-                            Selected display preview
-                          </span>
-                          <button
-                            type="button"
-                            className="btn btn-ghost btn-compact"
-                            onClick={() => void refreshDisplayPreview(videoIndex)}
-                            disabled={
-                              recording || uiLockedForCountdown || devicesLoading
-                            }
-                          >
-                            Refresh preview
-                          </button>
-                        </div>
-                      </div>
-                    ) : null}
+                    {/* Display preview intentionally disabled (screenshot probes can be slow and permission-sensitive). */}
                   </div>
                   <div className="device-grid-item device-grid-item--full">
                     <div className="field-label-row">
