@@ -1,4 +1,4 @@
-import { contextBridge, desktopCapturer, ipcRenderer } from 'electron'
+import { contextBridge, ipcRenderer } from 'electron'
 
 export type ResolveSckRecorderResult =
   | { path: string }
@@ -85,24 +85,38 @@ contextBridge.exposeInMainWorld('electronAPI', {
     // Prefer Electron's desktopCapturer for previews because it uses the app's
     // Screen Recording permission (avoids helper-binary permission mismatches).
     try {
-      const sources = await desktopCapturer.getSources({
-        types: ['screen'],
-        thumbnailSize: { width: 760, height: 760 },
-        fetchWindowIcons: false,
-      })
-      const asId = String(displayIdOrIndex)
-      const match =
-        sources.find((s) => (s.display_id ? String(s.display_id) === asId : false)) ??
-        sources.find((s) => s.id === `screen:${asId}`)
-      if (!match) {
-        return { ok: false, error: 'Could not find the selected display to preview.' }
-      }
-      const png = match.thumbnail.toPNG()
-      return {
-        ok: true,
-        pngBase64: png.toString('base64'),
-        width: match.thumbnail.getSize().width,
-        height: match.thumbnail.getSize().height,
+      try {
+        // Some bundlers/shims can produce `undefined` for named imports in preload;
+        // resolve at call-time to ensure we get Electron's real desktopCapturer.
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
+        const { desktopCapturer } = require('electron') as typeof import('electron')
+        if (!desktopCapturer?.getSources) {
+          throw new Error('desktopCapturer is unavailable')
+        }
+
+        const sources = await desktopCapturer.getSources({
+          types: ['screen'],
+          thumbnailSize: { width: 760, height: 760 },
+          fetchWindowIcons: false,
+        })
+        const asId = String(displayIdOrIndex)
+        const match =
+          sources.find((s) => (s.display_id ? String(s.display_id) === asId : false)) ??
+          sources.find((s) => s.id === `screen:${asId}`)
+        if (!match) {
+          return { ok: false, error: 'Could not find the selected display to preview.' }
+        }
+        const png = match.thumbnail.toPNG()
+        return {
+          ok: true,
+          pngBase64: png.toString('base64'),
+          width: match.thumbnail.getSize().width,
+          height: match.thumbnail.getSize().height,
+        }
+      } catch {
+        // Fallback: ask the main process to generate a screenshot via `sck-record`.
+        // This is more reliable in production when preload module shims break `desktopCapturer`.
+        return ipcRenderer.invoke('recording:captureDisplayScreenshot', displayIdOrIndex)
       }
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e)
