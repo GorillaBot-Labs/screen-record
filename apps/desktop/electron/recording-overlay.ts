@@ -44,12 +44,13 @@ function createOverlayWindow(): Promise<void> {
     const d = displayForIndex(overlayPendingDisplayIndex)
     const area = d.workArea
 
-    // Compact pill on the left edge of the recorded display.
-    const width = 240
-    const height = 54
+    // Skinny, tall control strip on the left edge of the recorded display.
+    const width = 150
+    const height = 260
     const marginX = 12
+    const marginY = 12
     const x = area.x + marginX
-    const y = area.y + Math.round((area.height - height) / 2)
+    const y = area.y + marginY
 
     const win = new BrowserWindow({
       x,
@@ -59,7 +60,7 @@ function createOverlayWindow(): Promise<void> {
       frame: false,
       transparent: true,
       resizable: false,
-      movable: false,
+      movable: true,
       minimizable: false,
       maximizable: false,
       closable: false,

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { createRoot } from 'react-dom/client'
-import { Square } from 'lucide-react'
+import { Pause, Play, RotateCcw, Square, X } from 'lucide-react'
 
 import './index.css'
 import './recording-overlay.css'
@@ -18,6 +18,7 @@ function RecordingOverlayApp() {
   const api = window.electronAPI?.recordingOverlay
   const [startedAtMs, setStartedAtMs] = useState<number | null>(null)
   const [nowMs, setNowMs] = useState(() => Date.now())
+  const [paused, setPaused] = useState(false)
 
   useEffect(() => {
     if (!api?.pullInitial) return
@@ -41,6 +42,25 @@ function RecordingOverlayApp() {
     await api?.stop?.()
   }
 
+  async function handleTogglePause() {
+    if (!api) return
+    if (paused) {
+      const res = await api.resume?.()
+      if (res?.ok) setPaused(false)
+    } else {
+      const res = await api.pause?.()
+      if (res?.ok) setPaused(true)
+    }
+  }
+
+  async function handleRestart() {
+    await api?.restart?.()
+  }
+
+  async function handleCancel() {
+    await api?.cancel?.()
+  }
+
   if (startedAtMs == null || elapsed == null) {
     return <div className="recording-overlay" aria-hidden />
   }
@@ -57,10 +77,38 @@ function RecordingOverlayApp() {
         </div>
       </div>
 
-      <button type="button" className="recording-overlay-stop" onClick={handleStop}>
-        <Square size={16} aria-hidden />
-        <span>Stop</span>
-      </button>
+      <div className="recording-overlay-actions" role="group" aria-label="Recording controls">
+        <button
+          type="button"
+          className="recording-overlay-btn"
+          onClick={handleTogglePause}
+          aria-label={paused ? 'Resume recording' : 'Pause recording'}
+        >
+          {paused ? <Play size={22} aria-hidden /> : <Pause size={22} aria-hidden />}
+        </button>
+
+        <button
+          type="button"
+          className="recording-overlay-btn recording-overlay-btn--stop"
+          onClick={handleStop}
+          aria-label="Stop recording"
+        >
+          <Square size={22} aria-hidden />
+        </button>
+
+        <button type="button" className="recording-overlay-btn" onClick={handleRestart} aria-label="Restart recording">
+          <RotateCcw size={22} aria-hidden />
+        </button>
+
+        <button
+          type="button"
+          className="recording-overlay-btn recording-overlay-btn--cancel"
+          onClick={handleCancel}
+          aria-label="Cancel recording"
+        >
+          <X size={22} aria-hidden />
+        </button>
+      </div>
     </div>
   )
 }

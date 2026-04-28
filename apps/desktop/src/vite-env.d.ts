@@ -12,6 +12,7 @@ import type {
   OpenScreenRecordingSettingsResult,
   RecordingEndedPayload,
   RecordingGcsUploadPayload,
+  CancelRecordingResult,
   RevealInFinderResult,
   ResolveSckRecorderResult,
   StartRecordingResult,
@@ -36,6 +37,7 @@ declare global {
         captureInput?: string;
       }) => Promise<StartRecordingResult>;
       stopRecording: () => Promise<StopRecordingResult>;
+      cancelRecording: () => Promise<CancelRecordingResult>;
       listRecentRecordings: () => Promise<ListRecentRecordingsResult>;
       openScreenRecordingSettings: () => Promise<OpenScreenRecordingSettingsResult>;
       openExternalUrl: (url: string) => Promise<OpenExternalUrlResult>;

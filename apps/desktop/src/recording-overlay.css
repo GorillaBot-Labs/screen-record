@@ -2,22 +2,23 @@
   position: fixed;
   inset: 0;
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 10px 10px 10px 12px;
-  border-radius: 999px;
-  background: rgba(15, 23, 42, 0.72);
-  color: #fff;
-  backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
-  box-shadow: var(--shadow-md);
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: flex-start;
+  gap: 10px;
+  padding: 10px;
+  background: rgba(15, 23, 42, 0.92);
+  color: rgba(255, 255, 255, 0.92);
+  border-radius: 16px;
+  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.12);
+  -webkit-app-region: drag;
 }
 
 .recording-overlay-left {
   display: flex;
+  flex-direction: row;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   min-width: 0;
 }
 
@@ -35,42 +36,80 @@
   flex-direction: column;
   line-height: 1.1;
   min-width: 0;
+  align-items: flex-start;
+  text-align: left;
 }
 
 .recording-overlay-title {
   font-size: 12px;
   font-weight: 600;
   letter-spacing: 0.2px;
-  color: rgba(255, 255, 255, 0.88);
+  color: rgba(255, 255, 255, 0.72);
 }
 
 .recording-overlay-time {
   font-variant-numeric: tabular-nums;
-  font-size: 14px;
-  font-weight: 700;
-  color: #fff;
+  font-size: 16px;
+  font-weight: 750;
+  color: rgba(255, 255, 255, 0.96);
 }
 
-.recording-overlay-stop {
-  display: inline-flex;
-  align-items: center;
+.recording-overlay-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
   gap: 8px;
+  -webkit-app-region: no-drag;
+}
+
+.recording-overlay-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
   appearance: none;
+  width: 100%;
+  height: 44px;
+  padding: 0;
   border: 1px solid rgba(255, 255, 255, 0.14);
-  color: #fff;
-  background: rgba(255, 255, 255, 0.10);
-  border-radius: 999px;
-  padding: 8px 12px;
-  font-weight: 650;
+  color: rgba(255, 255, 255, 0.92);
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 12px;
+  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.22);
   cursor: pointer;
   flex: 0 0 auto;
+  user-select: none;
+  -webkit-app-region: no-drag;
 }
 
-.recording-overlay-stop:hover {
-  background: rgba(255, 255, 255, 0.16);
+.recording-overlay-btn:hover {
+  background: rgba(255, 255, 255, 0.10);
 }
 
-.recording-overlay-stop:active {
+.recording-overlay-btn:active {
   transform: translateY(1px);
+}
+
+.recording-overlay-btn--stop {
+  border-color: rgba(255, 255, 255, 0.20);
+}
+
+.recording-overlay-btn--cancel {
+  border: 1px solid rgba(251, 113, 133, 0.55);
+  color: rgb(251, 113, 133);
+}
+
+.recording-overlay-btn--cancel:hover {
+  background: rgba(225, 29, 72, 0.06);
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  background: transparent;
+}
+
+body {
+  margin: 0;
 }
 

@@ -59,6 +59,10 @@ const DEFAULT_CAPTURE_INPUT = '0:0'
 type CaptureDevice = { index: number; name: string; displayId?: number }
 
 let recordingChild: ChildProcess | null = null
+let recordingOutputPath: string | null = null
+let recordingWasCancelled = false
+let recordingPaused = false
+let restartPending = false
 
 function parseMacOsMajor(systemVersion: string): number | null {
   // Electron's `app.getSystemVersion()` returns e.g. "10.15.7", "13.6.4", "14.5"
@@ -397,6 +401,13 @@ function updateTrayMenu() {
         void stopRecordingChild()
       },
     },
+    {
+      label: 'Cancel Recording',
+      enabled: recording,
+      click: () => {
+        void cancelRecordingChild()
+      },
+    },
     { type: 'separator' },
     {
       label: 'Quit',
@@ -449,7 +460,10 @@ function forwardStderrToRenderer(sender: Electron.WebContents, chunk: Buffer | s
   sender.send('recording:stderr', typeof chunk === 'string' ? chunk : chunk.toString())
 }
 
-function forwardRecordingEnded(sender: Electron.WebContents, payload: { code: number | null; signal: NodeJS.Signals | null }) {
+function forwardRecordingEnded(
+  sender: Electron.WebContents,
+  payload: { code: number | null; signal: NodeJS.Signals | null; cancelled?: boolean },
+) {
   if (sender.isDestroyed()) return
   sender.send('recording:ended', payload)
 }
@@ -462,6 +476,60 @@ function stopRecordingChild(): { ok: true } | { ok: false; error: string } {
   }
   child.kill('SIGINT')
   return { ok: true }
+}
+
+/**
+ * Aborts the active recording session.
+ * - Stops the recorder immediately
+ * - Skips upload
+ * - Deletes any partial output file
+ */
+function cancelRecordingChild(): { ok: true } | { ok: false; error: string } {
+  const child = recordingChild
+  if (!child || child.killed) {
+    return { ok: false, error: 'Not recording.' }
+  }
+  recordingWasCancelled = true
+  recordingPaused = false
+  try {
+    child.kill('SIGKILL')
+  } catch {
+    // If SIGKILL is not supported, fall back to SIGINT.
+    try {
+      child.kill('SIGINT')
+    } catch {
+      /* ignore */
+    }
+  }
+  return { ok: true }
+}
+
+function pauseRecordingChild(): { ok: true } | { ok: false; error: string } {
+  const child = recordingChild
+  if (!child || child.killed) return { ok: false, error: 'Not recording.' }
+  if (recordingPaused) return { ok: true }
+  try {
+    child.kill('SIGSTOP')
+    recordingPaused = true
+    return { ok: true }
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e)
+    return { ok: false, error: msg }
+  }
+}
+
+function resumeRecordingChild(): { ok: true } | { ok: false; error: string } {
+  const child = recordingChild
+  if (!child || child.killed) return { ok: false, error: 'Not recording.' }
+  if (!recordingPaused) return { ok: true }
+  try {
+    child.kill('SIGCONT')
+    recordingPaused = false
+    return { ok: true }
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e)
+    return { ok: false, error: msg }
+  }
 }
 
 ipcMain.handle('recording:resolveSck', (): { path: string } | { path: null; error: string } => {
@@ -581,6 +649,8 @@ ipcMain.handle(
     )
 
     recordingChild = child
+    recordingOutputPath = outputPath
+    recordingWasCancelled = false
     startTrayRecordingPresentation()
     const startedAtMs = recordingStartedAtMs ?? Date.now()
 
@@ -596,6 +666,9 @@ ipcMain.handle(
       if (recordingChild === child) {
         recordingChild = null
       }
+      if (recordingOutputPath === outputPath) {
+        recordingOutputPath = null
+      }
       forwardStderrToRenderer(sender, `Recorder process error: ${err.message}\n`)
       stopTrayRecordingPresentation()
       destroyRecordingOverlay()
@@ -607,13 +680,37 @@ ipcMain.handle(
       if (recordingChild === child) {
         recordingChild = null
       }
+      recordingPaused = false
+      const wasCancelled = recordingWasCancelled
+      if (recordingOutputPath === outputPath) {
+        recordingOutputPath = null
+      }
+      recordingWasCancelled = false
       stopTrayRecordingPresentation()
       destroyRecordingOverlay()
-      forwardRecordingEnded(sender, { code, signal })
+      forwardRecordingEnded(sender, { code, signal, ...(wasCancelled ? { cancelled: true } : {}) })
       updateTrayMenu()
       showMainWindow()
 
+      if (restartPending) {
+        restartPending = false
+        // Kick off the normal renderer start sequence (includes countdown + minimize).
+        setTimeout(() => {
+          void sendTrayStartRecordingToRenderer()
+        }, 150)
+      }
+
       void (async () => {
+        if (wasCancelled) {
+          try {
+            if (existsSync(outputPath)) {
+              unlinkSync(outputPath)
+            }
+          } catch {
+            /* ignore */
+          }
+          return
+        }
         if (!existsSync(outputPath)) {
           if (!sender.isDestroyed()) {
             sender.send('recording:gcs-upload', {
@@ -665,6 +762,39 @@ ipcMain.handle('recording:stop', async (): Promise<{ ok: true } | { ok: false; e
   if (res.ok) {
     updateTrayMenu()
   }
+  return res
+})
+
+ipcMain.handle('recording:cancel', async (): Promise<{ ok: true } | { ok: false; error: string }> => {
+  restartPending = false
+  const res = cancelRecordingChild()
+  if (res.ok) {
+    updateTrayMenu()
+  }
+  return res
+})
+
+ipcMain.handle('recording:pause', async (): Promise<{ ok: true } | { ok: false; error: string }> => {
+  const res = pauseRecordingChild()
+  if (res.ok) updateTrayMenu()
+  return res
+})
+
+ipcMain.handle('recording:resume', async (): Promise<{ ok: true } | { ok: false; error: string }> => {
+  const res = resumeRecordingChild()
+  if (res.ok) updateTrayMenu()
+  return res
+})
+
+ipcMain.handle('recording:restart', async (): Promise<{ ok: true } | { ok: false; error: string }> => {
+  // If not currently recording, just trigger the normal start sequence (with countdown) in the renderer.
+  if (!recordingChild || recordingChild.killed) {
+    void sendTrayStartRecordingToRenderer()
+    return { ok: true }
+  }
+  restartPending = true
+  const res = cancelRecordingChild()
+  if (res.ok) updateTrayMenu()
   return res
 })
 

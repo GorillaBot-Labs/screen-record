@@ -9,10 +9,14 @@ export type StartRecordingResult =
   | { ok: false; error: string }
 
 export type StopRecordingResult = { ok: true } | { ok: false; error: string }
+export type CancelRecordingResult = { ok: true } | { ok: false; error: string }
+export type PauseRecordingResult = { ok: true } | { ok: false; error: string }
+export type ResumeRecordingResult = { ok: true } | { ok: false; error: string }
+export type RestartRecordingResult = { ok: true } | { ok: false; error: string }
 
 export type RevealInFinderResult = { ok: true } | { ok: false; error: string }
 
-export type RecordingEndedPayload = { code: number | null; signal: NodeJS.Signals | null }
+export type RecordingEndedPayload = { code: number | null; signal: NodeJS.Signals | null; cancelled?: boolean }
 
 export type RecordingGcsUploadPayload =
   | { ok: true; url: string; outputPath: string; localFileDeleted?: boolean }
@@ -85,6 +89,10 @@ export type ElectronRecordingOverlayAPI = {
   pullInitial: () => Promise<number | null>
   close: () => Promise<void>
   stop: () => Promise<StopRecordingResult>
+  cancel: () => Promise<CancelRecordingResult>
+  pause: () => Promise<PauseRecordingResult>
+  resume: () => Promise<ResumeRecordingResult>
+  restart: () => Promise<RestartRecordingResult>
 }
 
 const recordingOverlay: ElectronRecordingOverlayAPI = {
@@ -93,6 +101,10 @@ const recordingOverlay: ElectronRecordingOverlayAPI = {
   pullInitial: () => ipcRenderer.invoke('recordingOverlay:pull-initial'),
   close: () => ipcRenderer.invoke('recordingOverlay:close'),
   stop: () => ipcRenderer.invoke('recording:stop'),
+  cancel: () => ipcRenderer.invoke('recording:cancel'),
+  pause: () => ipcRenderer.invoke('recording:pause'),
+  resume: () => ipcRenderer.invoke('recording:resume'),
+  restart: () => ipcRenderer.invoke('recording:restart'),
 }
 
 contextBridge.exposeInMainWorld('electronAPI', {
@@ -127,6 +139,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.invoke('recording:start', options ?? {}),
 
   stopRecording: (): Promise<StopRecordingResult> => ipcRenderer.invoke('recording:stop'),
+  cancelRecording: (): Promise<CancelRecordingResult> => ipcRenderer.invoke('recording:cancel'),
 
   listRecentRecordings: (): Promise<ListRecentRecordingsResult> =>
     ipcRenderer.invoke('recordings:listRecent'),

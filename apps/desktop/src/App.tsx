@@ -262,12 +262,20 @@ export default function App() {
       setLog(logRef.current);
     });
 
-    const offEnded = api.onRecordingEnded(({ code, signal }) => {
+    const offEnded = api.onRecordingEnded(({ code, signal, cancelled }) => {
       pushDiagnosticsEvent({
         kind: "recording.ended",
-        data: { code, signal, outputPath: outputPathRef.current },
+        data: { code, signal, cancelled: Boolean(cancelled), outputPath: outputPathRef.current },
       });
       setRecording(false);
+      if (cancelled) {
+        setCloudUploading(false);
+        setShareUrl(null);
+        setShareError(null);
+        setOutputPath(null);
+        setStatus("Cancelled.");
+        return;
+      }
       setCloudUploading(true);
       setStatus(`Ended (code=${code}, signal=${signal ?? "none"}). Uploading…`);
     });
