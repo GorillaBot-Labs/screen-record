@@ -140,6 +140,7 @@ export default function App() {
   const [cloudUploading, setCloudUploading] = useState(false);
   const [shareUrl, setShareUrl] = useState<string | null>(null);
   const [shareError, setShareError] = useState<string | null>(null);
+  const [toast, setToast] = useState<string | null>(null);
   /** Last up to five successful upload URLs (persisted under ~/.screen-record). */
   const [recentUrls, setRecentUrls] = useState<string[]>([]);
   /** 3 → 2 → 1 fullscreen overlay before recording; `null` when hidden. */
@@ -304,6 +305,16 @@ export default function App() {
       offGcs();
     };
   }, [refreshDevices, refreshRecentRecordings]);
+
+  useEffect(() => {
+    if (toast == null) return;
+    const id = window.setTimeout(() => {
+      setToast(null);
+    }, 1600);
+    return () => {
+      window.clearTimeout(id);
+    };
+  }, [toast]);
 
   useEffect(() => {
     if (!recording || recordingStartedAtMs == null) return;
@@ -489,10 +500,15 @@ export default function App() {
     }
   }
 
+  function showToast(message: string) {
+    setToast(message);
+  }
+
   async function handleCopyShareLink() {
     if (!shareUrl) return;
     try {
       await navigator.clipboard.writeText(shareUrl);
+      showToast("Copied");
     } catch {
       /* user can select the link in the UI */
     }
@@ -501,7 +517,7 @@ export default function App() {
   async function handleCopyRecordingUrl(url: string) {
     try {
       await navigator.clipboard.writeText(url);
-      setStatus("Link copied to the clipboard.");
+      showToast("Copied");
     } catch {
       setStatus("Could not copy automatically—select the link text below.");
     }
@@ -513,6 +529,16 @@ export default function App() {
     const res = await api.openExternalUrl(url);
     if (!res.ok) {
       setStatus(`Could not open link: ${res.error}`);
+    }
+  }
+
+  async function handleRevealOutputPath() {
+    const api = window.electronAPI;
+    if (!api) return;
+    if (!outputPath) return;
+    const res = await api.revealInFinder(outputPath);
+    if (!res.ok) {
+      setStatus(`Could not reveal file: ${res.error}`);
     }
   }
 
@@ -896,21 +922,47 @@ export default function App() {
               {shareError ? <p className="hint warn">{shareError}</p> : null}
               {shareUrl ? (
                 <>
-                  <p className="hint hint-flush">
-                    The link was copied when upload finished. You can copy it
-                    again below.
-                  </p>
-                  <p className="path-line">
-                    <code className="share-url">{shareUrl}</code>
-                  </p>
-                  <div className="inline-actions">
+                  <div className="share-ready">
+                    <div className="share-ready-header">
+                      <div className="share-ready-title">Ready to share</div>
+                      <div className="share-ready-sub">
+                        Link is public and was copied automatically.
+                      </div>
+                    </div>
+                    <div className="share-ready-field">
+                      <input
+                        className="share-ready-input"
+                        value={shareUrl}
+                        readOnly
+                        onFocus={(e) => e.currentTarget.select()}
+                        aria-label="Share link"
+                      />
+                    </div>
+                  </div>
+                  <div className="inline-actions inline-actions--share">
+                    <button
+                      type="button"
+                      className="btn btn-primary"
+                      onClick={() => void handleCopyShareLink()}
+                    >
+                      Copy
+                    </button>
                     <button
                       type="button"
                       className="btn btn-outline"
-                      onClick={() => void handleCopyShareLink()}
+                      onClick={() => void handleOpenRecordingUrl(shareUrl)}
                     >
-                      Copy link
+                      Open
                     </button>
+                    {outputPath ? (
+                      <button
+                        type="button"
+                        className="btn btn-ghost"
+                        onClick={() => void handleRevealOutputPath()}
+                      >
+                        Reveal file
+                      </button>
+                    ) : null}
                   </div>
                 </>
               ) : !cloudUploading && !shareError ? (
@@ -993,6 +1045,12 @@ export default function App() {
           </details>
         </div>
       </div>
+
+      {toast ? (
+        <div className="toast" role="status" aria-live="polite">
+          {toast}
+        </div>
+      ) : null}
 
       {countdown !== null && !hasBridge ? (
         <div
