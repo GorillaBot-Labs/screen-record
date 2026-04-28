@@ -109,7 +109,6 @@ function recordingTitleFromUrl(url: string): string {
 }
 
 export default function App() {
-  const [sckRecorderInfo, setSckRecorderInfo] = useState<string>("…");
   const [log, setLog] = useState<string>("");
   const [status, setStatus] = useState<string>("Idle");
   const [videoDevices, setVideoDevices] = useState<CaptureDevice[]>([]);
@@ -221,13 +220,8 @@ export default function App() {
   useEffect(() => {
     const api = window.electronAPI;
     if (!api) {
-      setSckRecorderInfo("Renderer has no preload bridge (open via Electron).");
       return;
     }
-
-    void api.resolveSckRecorderPath().then((res) => {
-      setSckRecorderInfo(res.path ?? res.error);
-    });
 
     void refreshDevices();
     void refreshRecentRecordings();
@@ -658,63 +652,6 @@ export default function App() {
             ) : null}
           </div>
 
-          {hasBridge ? (
-            <section className="app-card" aria-labelledby="recent-heading">
-              <div className="app-card-header">
-                <h2 id="recent-heading" className="app-card-title">
-                  Recent uploads
-                </h2>
-                <button
-                  type="button"
-                  className="btn btn-ghost"
-                  onClick={() => void refreshRecentRecordings()}
-                  disabled={recording || uiLockedForCountdown}
-                >
-                  Refresh
-                </button>
-              </div>
-              <div className="app-card-body">
-                {recentUrls.length === 0 ? (
-                  <p className="hint hint-flush">
-                    Up to five successful uploads from this Mac are kept here.
-                    Finish a recording to build the list.
-                  </p>
-                ) : (
-                  <ul className="recent-list" role="list">
-                    {recentUrls.map((url) => (
-                      <li key={url} className="recent-item">
-                        <div className="recent-item-main">
-                          <span className="recent-item-title">
-                            {recordingTitleFromUrl(url)}
-                          </span>
-                          <code className="recent-item-url" title={url}>
-                            {url}
-                          </code>
-                        </div>
-                        <div className="recent-item-actions">
-                          <button
-                            type="button"
-                            className="btn btn-outline btn-compact"
-                            onClick={() => void handleCopyRecordingUrl(url)}
-                          >
-                            Copy link
-                          </button>
-                          <button
-                            type="button"
-                            className="btn btn-outline btn-compact"
-                            onClick={() => void handleOpenRecordingUrl(url)}
-                          >
-                            Open in browser
-                          </button>
-                        </div>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-            </section>
-          ) : null}
-
           <section className="app-card" aria-labelledby="share-heading">
             <div className="app-card-header">
               <h2 id="share-heading" className="app-card-title">
@@ -754,20 +691,68 @@ export default function App() {
             </div>
           </section>
 
-          <details className="app-details">
-            <summary>Technical details</summary>
-            <div className="app-details-body">
-              <p>
-                <strong>sck-record</strong> — <code>{sckRecorderInfo}</code>
-              </p>
-              <p>
-                Device lists come from the native helper (
-                <code>sck-record --list-json</code>). Defaults prefer display
-                index <code>0</code> and microphone index <code>0</code> when
-                present.
-              </p>
-            </div>
-          </details>
+          {hasBridge ? (
+            <details className="app-details" aria-labelledby="recent-heading">
+              <summary id="recent-heading">
+                <span>Recent uploads</span>
+                <span className="app-details-meta">
+                  {recentUrls.length > 0 ? `${recentUrls.length}` : ""}
+                </span>
+              </summary>
+              <div className="app-details-body">
+                <div className="recent-controls">
+                  <p className="hint hint-flush recent-hint">
+                    Up to five successful uploads from this Mac are kept here.
+                  </p>
+                  <button
+                    type="button"
+                    className="btn btn-ghost btn-compact"
+                    onClick={() => void refreshRecentRecordings()}
+                    disabled={recording || uiLockedForCountdown}
+                  >
+                    Refresh
+                  </button>
+                </div>
+
+                {recentUrls.length === 0 ? (
+                  <p className="hint hint-flush">
+                    Finish a recording to build the list.
+                  </p>
+                ) : (
+                  <ul className="recent-list" role="list">
+                    {recentUrls.map((url) => (
+                      <li key={url} className="recent-item">
+                        <div className="recent-item-header">
+                          <span className="recent-item-title">
+                            {recordingTitleFromUrl(url)}
+                          </span>
+                          <div className="recent-item-actions">
+                            <button
+                              type="button"
+                              className="btn btn-outline btn-compact"
+                              onClick={() => void handleCopyRecordingUrl(url)}
+                            >
+                              Copy
+                            </button>
+                            <button
+                              type="button"
+                              className="btn btn-outline btn-compact"
+                              onClick={() => void handleOpenRecordingUrl(url)}
+                            >
+                              Open
+                            </button>
+                          </div>
+                        </div>
+                        <code className="recent-item-url" title={url}>
+                          {url}
+                        </code>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            </details>
+          ) : null}
 
           <details className="app-details">
             <summary>Recorder log</summary>
