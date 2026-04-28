@@ -497,33 +497,46 @@ export default function App() {
               ) : null}
               {!devicesLoading && !devicesError ? (
                 <div className="device-grid">
-                  <div>
+                  <div className="device-grid-item device-grid-item--full">
                     <div className="field-label-row">
-                      <label htmlFor="av-video" className="sub-label">
-                        Video
-                      </label>
+                      <span className="sub-label" id="screen-picker-label">
+                        Screen
+                      </span>
                     </div>
-                    <select
-                      id="av-video"
-                      className="app-select"
-                      value={videoIndex ?? ""}
-                      onChange={(e) =>
-                        handleVideoChange(Number.parseInt(e.target.value, 10))
-                      }
-                      disabled={
-                        !hasBridge ||
-                        recording ||
-                        uiLockedForCountdown ||
-                        videoDevices.length === 0
-                      }
-                      aria-labelledby="capture-heading"
+                    <div
+                      className="screen-picker"
+                      role="radiogroup"
+                      aria-labelledby="screen-picker-label"
                     >
-                      {videoDevices.map((d) => (
-                        <option key={d.index} value={d.index}>
-                          [{d.index}] {d.name}
-                        </option>
-                      ))}
-                    </select>
+                      {videoDevices.map((d) => {
+                        const selected = d.index === videoIndex;
+                        const disabled =
+                          !hasBridge ||
+                          recording ||
+                          uiLockedForCountdown ||
+                          videoDevices.length === 0;
+                        return (
+                          <button
+                            key={d.index}
+                            type="button"
+                            className={
+                              selected
+                                ? "screen-card screen-card--selected"
+                                : "screen-card"
+                            }
+                            onClick={() => handleVideoChange(d.index)}
+                            disabled={disabled}
+                            role="radio"
+                            aria-checked={selected}
+                          >
+                            <span className="screen-card-title">{d.name}</span>
+                            <span className="screen-card-meta">
+                              Index {d.index}
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
 
                     {hasBridge && videoIndex != null ? (
                       <div className="display-preview" aria-live="polite">
@@ -568,7 +581,7 @@ export default function App() {
                       </div>
                     ) : null}
                   </div>
-                  <div>
+                  <div className="device-grid-item device-grid-item--full">
                     <div className="field-label-row">
                       <label htmlFor="av-audio" className="sub-label">
                         Audio
