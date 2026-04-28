@@ -831,6 +831,20 @@ select.app-select:focus-visible {
   flex-shrink: 0;
 }
 
+/* Diagnostics */
+.diagnostics-controls {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding-top: 0.15rem;
+}
+
+.log--diagnostics {
+  margin-top: 0.45rem;
+  max-height: 14rem;
+}
+
 /* Accordions (<details>) */
 .app-details {
   border: 1px solid var(--border);

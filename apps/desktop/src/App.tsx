@@ -10,6 +10,24 @@ const AUDIO_INDEX_STORAGE_KEY = "screen-record:avAudioIndex";
 /** Legacy single-field storage; migrated once into index keys when present. */
 const LEGACY_AV_INPUT_KEY = "screen-record:avfoundationInput";
 
+type DiagnosticsEvent = {
+  at: number;
+  kind: string;
+  message?: string;
+  data?: unknown;
+};
+
+function formatDiagnosticsEvent(e: DiagnosticsEvent): string {
+  const iso = new Date(e.at).toISOString();
+  const msg = e.message ? ` ${e.message}` : "";
+  if (e.data === undefined) return `${iso} ${e.kind}${msg}`;
+  try {
+    return `${iso} ${e.kind}${msg} ${JSON.stringify(e.data)}`;
+  } catch {
+    return `${iso} ${e.kind}${msg} [unserializable data]`;
+  }
+}
+
 function loadStoredIndex(key: string): number | null {
   try {
     const raw = localStorage.getItem(key);
@@ -141,6 +159,9 @@ export default function App() {
   const [shareUrl, setShareUrl] = useState<string | null>(null);
   const [shareError, setShareError] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
+  const [diagnosticsEvents, setDiagnosticsEvents] = useState<DiagnosticsEvent[]>(
+    [],
+  );
   /** Last up to five successful upload URLs (persisted under ~/.screen-record). */
   const [recentUrls, setRecentUrls] = useState<string[]>([]);
   /** 3 → 2 → 1 fullscreen overlay before recording; `null` when hidden. */
@@ -148,8 +169,18 @@ export default function App() {
   /** Blocks overlapping start/countdown; avoids depending on `countdown` in `handleStart` deps (tray listener stability). */
   const startRecordingSequenceRef = useRef(false);
   const logRef = useRef<string>("");
+  const diagnosticsRef = useRef<DiagnosticsEvent[]>([]);
   const outputPathRef = useRef<string | null>(null);
   outputPathRef.current = outputPath;
+
+  const pushDiagnosticsEvent = useCallback(
+    (event: Omit<DiagnosticsEvent, "at">) => {
+      const next: DiagnosticsEvent = { at: Date.now(), ...event };
+      diagnosticsRef.current = [...diagnosticsRef.current, next].slice(-50);
+      setDiagnosticsEvents(diagnosticsRef.current);
+    },
+    [],
+  );
 
   const applyDeviceSelection = useCallback(
     (video: CaptureDevice[], audio: CaptureDevice[]) => {
@@ -171,11 +202,18 @@ export default function App() {
   const refreshDevices = useCallback(async () => {
     const api = window.electronAPI;
     if (!api) return;
+    const t0 = performance.now();
+    pushDiagnosticsEvent({ kind: "devices.refresh.start" });
     setDevicesLoading(true);
     setDevicesError(null);
     const res = await api.listCaptureDevices();
     setDevicesLoading(false);
     if (!res.ok) {
+      pushDiagnosticsEvent({
+        kind: "devices.refresh.error",
+        message: res.error,
+        data: { ms: Math.round(performance.now() - t0) },
+      });
       setDevicesError(res.error);
       setVideoDevices([]);
       setAudioDevices([]);
@@ -185,10 +223,18 @@ export default function App() {
     }
     const video = sortByIndex(res.video);
     const audio = sortByIndex(res.audio);
+    pushDiagnosticsEvent({
+      kind: "devices.refresh.ok",
+      data: {
+        ms: Math.round(performance.now() - t0),
+        videoCount: video.length,
+        audioCount: audio.length,
+      },
+    });
     setVideoDevices(video);
     setAudioDevices(audio);
     applyDeviceSelection(video, audio);
-  }, [applyDeviceSelection]);
+  }, [applyDeviceSelection, pushDiagnosticsEvent]);
 
   const refreshDisplayPreview = useCallback(
     async (index: number) => {
@@ -201,9 +247,24 @@ export default function App() {
       if (!api?.captureDisplayScreenshot) return;
       const device = videoDevices.find((d) => d.index === index);
       const selector = device?.displayId ?? index;
+      const t0 = performance.now();
+      pushDiagnosticsEvent({
+        kind: "preview.refresh.start",
+        data: { index, selector },
+      });
       setDisplayPreview({ kind: "loading", index });
       const res = await api.captureDisplayScreenshot(selector);
       if (res.ok) {
+        pushDiagnosticsEvent({
+          kind: "preview.refresh.ok",
+          data: {
+            index,
+            selector,
+            ms: Math.round(performance.now() - t0),
+            width: res.width,
+            height: res.height,
+          },
+        });
         setDisplayPreview({
           kind: "ready",
           index,
@@ -212,6 +273,11 @@ export default function App() {
           height: res.height,
         });
       } else {
+        pushDiagnosticsEvent({
+          kind: "preview.refresh.error",
+          message: res.error,
+          data: { index, selector, ms: Math.round(performance.now() - t0) },
+        });
         setDisplayPreview({
           kind: "error",
           index,
@@ -219,7 +285,7 @@ export default function App() {
         });
       }
     },
-    [videoDevices],
+    [pushDiagnosticsEvent, videoDevices],
   );
 
   const checkScreenRecordingReadiness = useCallback(
@@ -230,6 +296,11 @@ export default function App() {
       const selector = device?.displayId ?? index;
 
       setScreenReadiness({ kind: "checking" });
+      const t0 = performance.now();
+      pushDiagnosticsEvent({
+        kind: "permission.screen.check.start",
+        data: { index, selector },
+      });
 
       const attempt = async () => api.captureDisplayScreenshot(selector);
       const res1 = await attempt();
@@ -241,26 +312,45 @@ export default function App() {
         });
 
       if (res.ok) {
+        pushDiagnosticsEvent({
+          kind: "permission.screen.check.ok",
+          data: { index, selector, ms: Math.round(performance.now() - t0) },
+        });
         setScreenReadiness({ kind: "ready" });
       } else {
+        pushDiagnosticsEvent({
+          kind: "permission.screen.check.blocked",
+          message: res.error,
+          data: { index, selector, ms: Math.round(performance.now() - t0) },
+        });
         setScreenReadiness({
           kind: "blocked",
           message: res.error,
         });
       }
     },
-    [videoDevices],
+    [pushDiagnosticsEvent, videoDevices],
   );
 
   const refreshRecentRecordings = useCallback(async () => {
     const api = window.electronAPI;
     if (!api) return;
     const { urls } = await api.listRecentRecordings();
+    pushDiagnosticsEvent({ kind: "recent.refresh", data: { count: urls.length } });
     setRecentUrls(urls);
-  }, []);
+  }, [pushDiagnosticsEvent]);
 
   useEffect(() => {
     const api = window.electronAPI;
+    pushDiagnosticsEvent({
+      kind: "renderer.mounted",
+      data: {
+        userAgent: navigator.userAgent,
+        platform: navigator.platform,
+        language: navigator.language,
+        tz: Intl.DateTimeFormat().resolvedOptions().timeZone,
+      },
+    });
     if (!api) {
       return;
     }
@@ -274,6 +364,10 @@ export default function App() {
     });
 
     const offEnded = api.onRecordingEnded(({ code, signal }) => {
+      pushDiagnosticsEvent({
+        kind: "recording.ended",
+        data: { code, signal, outputPath: outputPathRef.current },
+      });
       setRecording(false);
       setRecordingStartedAtMs(null);
       setStopRequested(false);
@@ -282,6 +376,13 @@ export default function App() {
     });
 
     const offGcs = api.onRecordingGcsUpload((p) => {
+      pushDiagnosticsEvent({
+        kind: p.ok ? "upload.ok" : "upload.error",
+        message: p.ok ? undefined : p.error,
+        data: p.ok
+          ? { url: p.url, outputPath: p.outputPath, localFileDeleted: p.localFileDeleted }
+          : { outputPath: p.outputPath },
+      });
       setCloudUploading(false);
       if (p.outputPath !== outputPathRef.current) return;
       if (p.ok) {
@@ -304,7 +405,7 @@ export default function App() {
       offEnded();
       offGcs();
     };
-  }, [refreshDevices, refreshRecentRecordings]);
+  }, [pushDiagnosticsEvent, refreshDevices, refreshRecentRecordings]);
 
   useEffect(() => {
     if (toast == null) return;
@@ -364,11 +465,13 @@ export default function App() {
   }
 
   function handleVideoChange(index: number) {
+    pushDiagnosticsEvent({ kind: "devices.video.select", data: { index } });
     setVideoIndex(index);
     persistIndex(VIDEO_INDEX_STORAGE_KEY, index);
   }
 
   function handleAudioChange(index: number) {
+    pushDiagnosticsEvent({ kind: "devices.audio.select", data: { index } });
     setAudioIndex(index);
     persistIndex(AUDIO_INDEX_STORAGE_KEY, index);
   }
@@ -379,26 +482,49 @@ export default function App() {
 
     if (recording) {
       setStatus("Already recording.");
+      pushDiagnosticsEvent({ kind: "recording.start.noop", message: "Already recording" });
       return;
     }
     if (startRecordingSequenceRef.current) {
       setStatus("Countdown already in progress.");
+      pushDiagnosticsEvent({
+        kind: "recording.start.noop",
+        message: "Countdown already in progress",
+      });
       return;
     }
     if (devicesLoading) {
       setStatus("Still loading devices; try again in a moment.");
+      pushDiagnosticsEvent({
+        kind: "recording.start.blocked",
+        message: "Devices still loading",
+      });
       return;
     }
     if (devicesError != null) {
       setStatus(`Cannot start: ${devicesError}`);
+      pushDiagnosticsEvent({
+        kind: "recording.start.blocked",
+        message: devicesError,
+      });
       return;
     }
     if (videoDevices.length === 0 || audioDevices.length === 0) {
       setStatus("No capture devices available.");
+      pushDiagnosticsEvent({
+        kind: "recording.start.blocked",
+        message: "No capture devices available",
+        data: { videoCount: videoDevices.length, audioCount: audioDevices.length },
+      });
       return;
     }
     if (videoIndex == null || audioIndex == null) {
       setStatus("Choose video and audio devices in the app first.");
+      pushDiagnosticsEvent({
+        kind: "recording.start.blocked",
+        message: "Missing device selection",
+        data: { videoIndex, audioIndex },
+      });
       return;
     }
     if (screenReadiness.kind !== "ready") {
@@ -407,6 +533,13 @@ export default function App() {
           ? "Screen Recording permission is not ready yet. Open System Settings → Privacy & Security → Screen Recording, enable Screen Record, then click Recheck."
           : "Checking Screen Recording permission…",
       );
+      pushDiagnosticsEvent({
+        kind: "recording.start.blocked",
+        message:
+          screenReadiness.kind === "blocked"
+            ? "Screen Recording permission blocked"
+            : "Screen Recording permission checking",
+      });
       if (videoIndex != null) {
         void checkScreenRecordingReadiness(videoIndex);
       }
@@ -416,17 +549,30 @@ export default function App() {
     startRecordingSequenceRef.current = true;
     let minRes: { ok: true } | { ok: false; error: string } = { ok: true };
     try {
+      pushDiagnosticsEvent({
+        kind: "recording.start.sequence.begin",
+        data: { videoIndex, audioIndex },
+      });
       setCountdown(3);
       const overlayRes = await api.overlay.open(3);
       if (!overlayRes.ok) {
         setCountdown(null);
         setStatus(`Could not open countdown overlay: ${overlayRes.error}`);
+        pushDiagnosticsEvent({
+          kind: "recording.start.sequence.error",
+          message: overlayRes.error,
+          data: { step: "overlay.open" },
+        });
         return;
       }
 
       minRes = await api.minimizeWindow();
       if (!minRes.ok) {
         setStatus(`Could not minimize window: ${minRes.error}`);
+        pushDiagnosticsEvent({
+          kind: "window.minimize.error",
+          message: minRes.error,
+        });
       }
 
       let shown = 3;
@@ -447,8 +593,18 @@ export default function App() {
       setLog("");
       setStatus("Starting…");
       const input = `${videoIndex}:${audioIndex}`;
+      const t0 = performance.now();
       const res = await api.startRecording({ captureInput: input });
       if (res.ok) {
+        pushDiagnosticsEvent({
+          kind: "recording.start.ok",
+          data: {
+            ms: Math.round(performance.now() - t0),
+            outputPath: res.outputPath,
+            recordingStartedAtMs: res.recordingStartedAtMs,
+            captureInput: input,
+          },
+        });
         setRecording(true);
         setRecordingStartedAtMs(res.recordingStartedAtMs);
         setStopRequested(false);
@@ -460,6 +616,11 @@ export default function App() {
           minRes.ok ? "Recording" : "Recording (window was not minimized)",
         );
       } else {
+        pushDiagnosticsEvent({
+          kind: "recording.start.error",
+          message: res.error,
+          data: { ms: Math.round(performance.now() - t0), captureInput: input },
+        });
         setStatus(`Start failed: ${res.error}`);
       }
     } finally {
@@ -475,6 +636,7 @@ export default function App() {
     screenReadiness.kind,
     videoDevices.length,
     videoIndex,
+    pushDiagnosticsEvent,
   ]);
 
   useEffect(() => {
@@ -493,9 +655,11 @@ export default function App() {
     if (!api) return;
     const res = await api.stopRecording();
     if (res.ok) {
+      pushDiagnosticsEvent({ kind: "recording.stop.sent" });
       setStopRequested(true);
       setStatus("Stop sent (SIGINT); wait for the recorder to finalize…");
     } else {
+      pushDiagnosticsEvent({ kind: "recording.stop.error", message: res.error });
       setStatus(res.error);
     }
   }
@@ -508,8 +672,10 @@ export default function App() {
     if (!shareUrl) return;
     try {
       await navigator.clipboard.writeText(shareUrl);
+      pushDiagnosticsEvent({ kind: "clipboard.copy.shareUrl.ok" });
       showToast("Copied");
     } catch {
+      pushDiagnosticsEvent({ kind: "clipboard.copy.shareUrl.error" });
       /* user can select the link in the UI */
     }
   }
@@ -517,8 +683,10 @@ export default function App() {
   async function handleCopyRecordingUrl(url: string) {
     try {
       await navigator.clipboard.writeText(url);
+      pushDiagnosticsEvent({ kind: "clipboard.copy.recentUrl.ok" });
       showToast("Copied");
     } catch {
+      pushDiagnosticsEvent({ kind: "clipboard.copy.recentUrl.error" });
       setStatus("Could not copy automatically—select the link text below.");
     }
   }
@@ -528,7 +696,10 @@ export default function App() {
     if (!api) return;
     const res = await api.openExternalUrl(url);
     if (!res.ok) {
+      pushDiagnosticsEvent({ kind: "shell.openExternal.error", message: res.error });
       setStatus(`Could not open link: ${res.error}`);
+    } else {
+      pushDiagnosticsEvent({ kind: "shell.openExternal.ok" });
     }
   }
 
@@ -538,7 +709,49 @@ export default function App() {
     if (!outputPath) return;
     const res = await api.revealInFinder(outputPath);
     if (!res.ok) {
+      pushDiagnosticsEvent({ kind: "finder.reveal.error", message: res.error });
       setStatus(`Could not reveal file: ${res.error}`);
+    } else {
+      pushDiagnosticsEvent({ kind: "finder.reveal.ok" });
+    }
+  }
+
+  async function handleCopyDiagnostics() {
+    const header = [
+      "Screen Record — diagnostics",
+      `capturedAt=${new Date().toISOString()}`,
+      `hasBridge=${String(Boolean(window.electronAPI))}`,
+      `userAgent=${navigator.userAgent}`,
+      `platform=${navigator.platform}`,
+      `language=${navigator.language}`,
+      `timezone=${Intl.DateTimeFormat().resolvedOptions().timeZone}`,
+      `recording=${String(recording)}`,
+      `cloudUploading=${String(cloudUploading)}`,
+      `devicesLoading=${String(devicesLoading)}`,
+      `devicesError=${devicesError ?? ""}`,
+      `screenReadiness=${screenReadiness.kind}`,
+      `videoDevices=${videoDevices.length}`,
+      `audioDevices=${audioDevices.length}`,
+      `videoIndex=${videoIndex ?? ""}`,
+      `audioIndex=${audioIndex ?? ""}`,
+      `shareUrl=${shareUrl ?? ""}`,
+      `shareError=${shareError ?? ""}`,
+      `outputPath=${outputPath ?? ""}`,
+      "",
+      "events:",
+    ].join("\n");
+    const body =
+      diagnosticsEvents.length === 0
+        ? "—"
+        : diagnosticsEvents.map(formatDiagnosticsEvent).join("\n");
+    const text = `${header}\n${body}\n`;
+    try {
+      await navigator.clipboard.writeText(text);
+      pushDiagnosticsEvent({ kind: "clipboard.copy.diagnostics.ok" });
+      showToast("Diagnostics copied");
+    } catch {
+      pushDiagnosticsEvent({ kind: "clipboard.copy.diagnostics.error" });
+      setStatus("Could not copy diagnostics automatically.");
     }
   }
 
@@ -1041,6 +1254,35 @@ export default function App() {
             <summary>Recorder log</summary>
             <div className="app-details-body">
               <pre className="log">{log || "—"}</pre>
+            </div>
+          </details>
+
+          <details className="app-details" aria-labelledby="diagnostics-heading">
+            <summary id="diagnostics-heading">
+              <span>Diagnostics</span>
+              <span className="app-details-meta">
+                {diagnosticsEvents.length > 0 ? `${diagnosticsEvents.length}` : ""}
+              </span>
+            </summary>
+            <div className="app-details-body">
+              <div className="diagnostics-controls">
+                <p className="hint hint-flush">
+                  Copy this when filing a bug or support ticket.
+                </p>
+                <button
+                  type="button"
+                  className="btn btn-ghost btn-compact"
+                  onClick={() => void handleCopyDiagnostics()}
+                  disabled={uiLockedForCountdown}
+                >
+                  Copy diagnostics
+                </button>
+              </div>
+              <pre className="log log--diagnostics">
+                {diagnosticsEvents.length === 0
+                  ? "—"
+                  : diagnosticsEvents.map(formatDiagnosticsEvent).join("\n")}
+              </pre>
             </div>
           </details>
         </div>
