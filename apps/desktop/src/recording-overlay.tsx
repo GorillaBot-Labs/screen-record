@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import { Pause, Play, RotateCcw, Square, X } from 'lucide-react'
 
@@ -17,8 +17,9 @@ function formatElapsed(ms: number): string {
 function RecordingOverlayApp() {
   const api = window.electronAPI?.recordingOverlay
   const [startedAtMs, setStartedAtMs] = useState<number | null>(null)
-  const [nowMs, setNowMs] = useState(() => Date.now())
   const [paused, setPaused] = useState(false)
+  const [elapsedMs, setElapsedMs] = useState(0)
+  const lastTickMsRef = useRef<number | null>(null)
 
   useEffect(() => {
     if (!api?.pullInitial) return
@@ -29,14 +30,28 @@ function RecordingOverlayApp() {
 
   useEffect(() => {
     if (startedAtMs == null) return
-    const id = window.setInterval(() => setNowMs(Date.now()), 250)
-    return () => window.clearInterval(id)
+    const now = Date.now()
+    lastTickMsRef.current = now
+    setElapsedMs(Math.max(0, now - startedAtMs))
+    return undefined
   }, [startedAtMs])
+
+  useEffect(() => {
+    if (startedAtMs == null) return
+    if (paused) return
+    const id = window.setInterval(() => {
+      const now = Date.now()
+      const last = lastTickMsRef.current ?? now
+      lastTickMsRef.current = now
+      setElapsedMs((prev) => Math.max(0, prev + (now - last)))
+    }, 250)
+    return () => window.clearInterval(id)
+  }, [paused, startedAtMs])
 
   const elapsed = useMemo(() => {
     if (startedAtMs == null) return null
-    return Math.max(0, nowMs - startedAtMs)
-  }, [nowMs, startedAtMs])
+    return elapsedMs
+  }, [elapsedMs, startedAtMs])
 
   async function handleStop() {
     await api?.stop?.()
@@ -46,10 +61,21 @@ function RecordingOverlayApp() {
     if (!api) return
     if (paused) {
       const res = await api.resume?.()
-      if (res?.ok) setPaused(false)
+      if (res?.ok) {
+        lastTickMsRef.current = Date.now()
+        setPaused(false)
+      } else {
+        // eslint-disable-next-line no-console
+        console.warn('Resume failed', res)
+      }
     } else {
       const res = await api.pause?.()
-      if (res?.ok) setPaused(true)
+      if (res?.ok) {
+        setPaused(true)
+      } else {
+        // eslint-disable-next-line no-console
+        console.warn('Pause failed', res)
+      }
     }
   }
 

@@ -63,6 +63,8 @@ let recordingOutputPath: string | null = null
 let recordingWasCancelled = false
 let recordingPaused = false
 let restartPending = false
+let recordingPausedAtMs: number | null = null
+let recordingPausedTotalMs = 0
 
 function parseMacOsMajor(systemVersion: string): number | null {
   // Electron's `app.getSystemVersion()` returns e.g. "10.15.7", "13.6.4", "14.5"
@@ -317,16 +319,21 @@ function applyTrayRecordingPresentation() {
     }
     return
   }
-  const elapsed = Date.now() - recordingStartedAtMs
+  const now = Date.now()
+  const pauseExtra = recordingPausedAtMs != null ? now - recordingPausedAtMs : 0
+  const elapsed = Math.max(0, now - recordingStartedAtMs - recordingPausedTotalMs - pauseExtra)
   const dur = formatRecordingElapsed(elapsed)
-  tray.setToolTip(`Recording — ${dur}`)
+  tray.setToolTip(recordingPaused ? `Paused — ${dur}` : `Recording — ${dur}`)
   if (process.platform === 'darwin') {
-    tray.setTitle(` \u25CF ${dur}`)
+    tray.setTitle(recordingPaused ? ` \u275A\u275A ${dur}` : ` \u25CF ${dur}`)
   }
 }
 
 function startTrayRecordingPresentation() {
   recordingStartedAtMs = Date.now()
+  recordingPaused = false
+  recordingPausedAtMs = null
+  recordingPausedTotalMs = 0
   clearTrayRecordingTick()
   applyTrayRecordingPresentation()
   trayRecordingTick = setInterval(applyTrayRecordingPresentation, 1000)
@@ -335,6 +342,9 @@ function startTrayRecordingPresentation() {
 function stopTrayRecordingPresentation() {
   clearTrayRecordingTick()
   recordingStartedAtMs = null
+  recordingPaused = false
+  recordingPausedAtMs = null
+  recordingPausedTotalMs = 0
   applyTrayRecordingPresentation()
 }
 
@@ -491,6 +501,8 @@ function cancelRecordingChild(): { ok: true } | { ok: false; error: string } {
   }
   recordingWasCancelled = true
   recordingPaused = false
+  recordingPausedAtMs = null
+  recordingPausedTotalMs = 0
   try {
     child.kill('SIGKILL')
   } catch {
@@ -511,6 +523,9 @@ function pauseRecordingChild(): { ok: true } | { ok: false; error: string } {
   try {
     child.kill('SIGSTOP')
     recordingPaused = true
+    recordingPausedAtMs = Date.now()
+    clearTrayRecordingTick()
+    applyTrayRecordingPresentation()
     return { ok: true }
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e)
@@ -525,6 +540,13 @@ function resumeRecordingChild(): { ok: true } | { ok: false; error: string } {
   try {
     child.kill('SIGCONT')
     recordingPaused = false
+    if (recordingPausedAtMs != null) {
+      recordingPausedTotalMs += Date.now() - recordingPausedAtMs
+      recordingPausedAtMs = null
+    }
+    clearTrayRecordingTick()
+    applyTrayRecordingPresentation()
+    trayRecordingTick = setInterval(applyTrayRecordingPresentation, 1000)
     return { ok: true }
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e)
