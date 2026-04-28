@@ -15,6 +15,7 @@ import {
   Tray,
 } from 'electron'
 import { destroyCountdownOverlay, registerCountdownOverlayIpc } from './countdown-overlay'
+import { destroyRecordingOverlay, openRecordingOverlay, registerRecordingOverlayIpc } from './recording-overlay'
 import { uploadRecordingToGcs } from './gcs-upload'
 import { readRecentRecordingUrls, recordSuccessfulUploadUrl } from './recent-recordings'
 
@@ -35,6 +36,12 @@ const viteDevServerUrl = process.env.VITE_DEV_SERVER_URL
 const rendererDist = path.join(appRoot, 'dist')
 
 registerCountdownOverlayIpc({
+  preloadPath: path.join(__dirname, 'preload.mjs'),
+  rendererDist,
+  viteDevServerUrl,
+})
+
+registerRecordingOverlayIpc({
   preloadPath: path.join(__dirname, 'preload.mjs'),
   rendererDist,
   viteDevServerUrl,
@@ -427,6 +434,7 @@ function createWindow() {
   mainWindow.on('closed', () => {
     mainWindow = null
     destroyCountdownOverlay()
+    destroyRecordingOverlay()
   })
 
   if (viteDevServerUrl) {
@@ -576,6 +584,8 @@ ipcMain.handle(
     startTrayRecordingPresentation()
     const startedAtMs = recordingStartedAtMs ?? Date.now()
 
+    void openRecordingOverlay(startedAtMs, displayIdx)
+
     const sender = event.sender
     forwardStderrToRenderer(sender, 'Using ScreenCaptureKit (sck-record).\n')
     child.stderr?.on('data', (chunk: Buffer) => {
@@ -588,6 +598,7 @@ ipcMain.handle(
       }
       forwardStderrToRenderer(sender, `Recorder process error: ${err.message}\n`)
       stopTrayRecordingPresentation()
+      destroyRecordingOverlay()
       updateTrayMenu()
       showMainWindow()
     })
@@ -597,6 +608,7 @@ ipcMain.handle(
         recordingChild = null
       }
       stopTrayRecordingPresentation()
+      destroyRecordingOverlay()
       forwardRecordingEnded(sender, { code, signal })
       updateTrayMenu()
       showMainWindow()
@@ -744,6 +756,7 @@ ipcMain.handle(
 
 function stopRecordingOnQuit() {
   destroyCountdownOverlay()
+  destroyRecordingOverlay()
   if (recordingChild && !recordingChild.killed) {
     recordingChild.kill('SIGINT')
   }

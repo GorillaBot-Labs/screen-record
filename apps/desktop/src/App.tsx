@@ -136,11 +136,6 @@ export default function App() {
   const [devicesError, setDevicesError] = useState<string | null>(null);
   const [outputPath, setOutputPath] = useState<string | null>(null);
   const [recording, setRecording] = useState(false);
-  const [recordingStartedAtMs, setRecordingStartedAtMs] = useState<number | null>(
-    null,
-  );
-  const [stopRequested, setStopRequested] = useState(false);
-  const [nowMs, setNowMs] = useState<number>(() => Date.now());
   /** After sck-record exits: upload to GCS until we get `recording:gcs-upload`. */
   const [cloudUploading, setCloudUploading] = useState(false);
   const [shareUrl, setShareUrl] = useState<string | null>(null);
@@ -265,8 +260,6 @@ export default function App() {
         data: { code, signal, outputPath: outputPathRef.current },
       });
       setRecording(false);
-      setRecordingStartedAtMs(null);
-      setStopRequested(false);
       setCloudUploading(true);
       setStatus(`Ended (code=${code}, signal=${signal ?? "none"}). Uploading…`);
     });
@@ -313,17 +306,6 @@ export default function App() {
     };
   }, [toast]);
 
-  useEffect(() => {
-    if (!recording || recordingStartedAtMs == null) return;
-    setNowMs(Date.now());
-    const id = window.setInterval(() => {
-      setNowMs(Date.now());
-    }, 250);
-    return () => {
-      window.clearInterval(id);
-    };
-  }, [recording, recordingStartedAtMs]);
-
   // Preview + readiness checks are disabled (see note above).
 
   function resolutionFromDeviceName(name: string): string | null {
@@ -333,17 +315,6 @@ export default function App() {
     const h = Number.parseInt(m[2], 10);
     if (!Number.isFinite(w) || !Number.isFinite(h)) return null;
     return `${w}×${h}`;
-  }
-
-  function formatElapsed(ms: number): string {
-    const totalSec = Math.max(0, Math.floor(ms / 1000));
-    const h = Math.floor(totalSec / 3600);
-    const m = Math.floor((totalSec % 3600) / 60);
-    const s = totalSec % 60;
-    if (h > 0) {
-      return `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
-    }
-    return `${m}:${String(s).padStart(2, "0")}`;
   }
 
   function handleVideoChange(index: number) {
@@ -469,8 +440,6 @@ export default function App() {
           },
         });
         setRecording(true);
-        setRecordingStartedAtMs(res.recordingStartedAtMs);
-        setStopRequested(false);
         setOutputPath(res.outputPath);
         setShareUrl(null);
         setShareError(null);
@@ -510,20 +479,6 @@ export default function App() {
       off();
     };
   }, [handleStart]);
-
-  async function handleStop() {
-    const api = window.electronAPI;
-    if (!api) return;
-    const res = await api.stopRecording();
-    if (res.ok) {
-      pushDiagnosticsEvent({ kind: "recording.stop.sent" });
-      setStopRequested(true);
-      setStatus("Stop sent (SIGINT); wait for the recorder to finalize…");
-    } else {
-      pushDiagnosticsEvent({ kind: "recording.stop.error", message: res.error });
-      setStatus(res.error);
-    }
-  }
 
   function showToast(message: string) {
     setToast(message);
@@ -651,89 +606,10 @@ export default function App() {
     status,
   });
 
-  const stripPhase:
-    | "idle"
-    | "countdown"
-    | "recording"
-    | "stopping"
-    | "uploading"
-    | "uploaded"
-    | "error" = (() => {
-    if (!hasBridge) return "idle";
-    if (devicesError != null) return "error";
-    if (recording && stopRequested) return "stopping";
-    if (recording) return "recording";
-    if (countdown !== null) return "countdown";
-    if (cloudUploading) return "uploading";
-    if (shareUrl) return "uploaded";
-    if (shareError) return "error";
-    return "idle";
-  })();
-
-  const stripToneClass =
-    stripPhase === "recording" || stripPhase === "stopping"
-      ? "recording-strip recording-strip--recording"
-      : stripPhase === "uploading" || stripPhase === "countdown"
-        ? "recording-strip recording-strip--busy"
-        : stripPhase === "uploaded"
-          ? "recording-strip recording-strip--success"
-          : stripPhase === "error"
-            ? "recording-strip recording-strip--error"
-            : "recording-strip";
-
-  const stripTitle = (() => {
-    switch (stripPhase) {
-      case "recording":
-        return "Recording";
-      case "stopping":
-        return "Stopping…";
-      case "uploading":
-        return "Uploading…";
-      case "countdown":
-        return `Starting in ${countdown ?? 0}…`;
-      case "uploaded":
-        return "Uploaded";
-      case "error":
-        return "Needs attention";
-      case "idle":
-      default:
-        return "Ready";
-    }
-  })();
-
-  const stripDetail = (() => {
-    if (stripPhase === "recording" || stripPhase === "stopping") {
-      if (recordingStartedAtMs == null) return null;
-      return formatElapsed(nowMs - recordingStartedAtMs);
-    }
-    return null;
-  })();
-
   return (
     <>
       <div className="app">
         <div className="app-container">
-          <div className={stripToneClass} role="status" aria-live="polite">
-            <div className="recording-strip-left">
-              <span className="recording-strip-title">{stripTitle}</span>
-              {stripDetail ? (
-                <span className="recording-strip-detail">{stripDetail}</span>
-              ) : null}
-            </div>
-            <div className="recording-strip-right">
-              {stripPhase === "recording" || stripPhase === "stopping" ? (
-                <button
-                  type="button"
-                  className="btn btn-danger btn-compact"
-                  onClick={() => void handleStop()}
-                  disabled={!hasBridge || !recording || stopRequested}
-                >
-                  Stop
-                </button>
-              ) : null}
-            </div>
-          </div>
-
           <header className="app-header">
             <div className="app-brand">
               <span className="app-mark" aria-hidden />

@@ -1,0 +1,73 @@
+.recording-overlay {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 10px 10px 12px;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.72);
+  color: #fff;
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  box-shadow: var(--shadow-md);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.recording-overlay-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.recording-overlay-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--danger);
+  box-shadow: 0 0 0 6px rgba(225, 29, 72, 0.18);
+  flex: 0 0 auto;
+}
+
+.recording-overlay-meta {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.1;
+  min-width: 0;
+}
+
+.recording-overlay-title {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.2px;
+  color: rgba(255, 255, 255, 0.88);
+}
+
+.recording-overlay-time {
+  font-variant-numeric: tabular-nums;
+  font-size: 14px;
+  font-weight: 700;
+  color: #fff;
+}
+
+.recording-overlay-stop {
+  appearance: none;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  color: #fff;
+  background: rgba(255, 255, 255, 0.10);
+  border-radius: 999px;
+  padding: 8px 12px;
+  font-weight: 650;
+  cursor: pointer;
+  flex: 0 0 auto;
+}
+
+.recording-overlay-stop:hover {
+  background: rgba(255, 255, 255, 0.16);
+}
+
+.recording-overlay-stop:active {
+  transform: translateY(1px);
+}
+

@@ -4,8 +4,10 @@ import type {
   CaptureDevice,
   CaptureDisplayScreenshotResult,
   ElectronOverlayAPI,
+  ElectronRecordingOverlayAPI,
   ListCaptureDevicesResult,
   ListRecentRecordingsResult,
+  OpenRecordingOverlayResult,
   OpenExternalUrlResult,
   OpenScreenRecordingSettingsResult,
   RecordingEndedPayload,
@@ -24,6 +26,7 @@ declare global {
       >;
       countdownWaitMs: (ms: number) => Promise<{ skipped: boolean }>;
       overlay: ElectronOverlayAPI;
+      recordingOverlay: ElectronRecordingOverlayAPI;
       resolveSckRecorderPath: () => Promise<ResolveSckRecorderResult>;
       listCaptureDevices: () => Promise<ListCaptureDevicesResult>;
       captureDisplayScreenshot: (

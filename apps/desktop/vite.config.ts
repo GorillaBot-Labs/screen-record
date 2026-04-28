@@ -23,6 +23,7 @@ export default defineConfig(({ command }) => {
         input: {
           main: path.join(__dirname, 'index.html'),
           overlay: path.join(__dirname, 'overlay.html'),
+          recordingOverlay: path.join(__dirname, 'recording-overlay.html'),
         },
       },
     },

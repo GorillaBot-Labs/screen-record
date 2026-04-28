@@ -30,6 +30,8 @@ export type CaptureDisplayScreenshotResult =
 
 export type OpenCountdownOverlayResult = { ok: true } | { ok: false; error: string }
 
+export type OpenRecordingOverlayResult = { ok: true } | { ok: false; error: string }
+
 export type ListRecentRecordingsResult = { urls: string[] }
 
 export type OpenExternalUrlResult = { ok: true } | { ok: false; error: string }
@@ -78,6 +80,21 @@ const overlay: ElectronOverlayAPI = {
   },
 }
 
+export type ElectronRecordingOverlayAPI = {
+  open: (startedAtMs: number, displayIndex?: number | null) => Promise<OpenRecordingOverlayResult>
+  pullInitial: () => Promise<number | null>
+  close: () => Promise<void>
+  stop: () => Promise<StopRecordingResult>
+}
+
+const recordingOverlay: ElectronRecordingOverlayAPI = {
+  open: (startedAtMs: number, displayIndex?: number | null) =>
+    ipcRenderer.invoke('recordingOverlay:open', startedAtMs, displayIndex ?? null),
+  pullInitial: () => ipcRenderer.invoke('recordingOverlay:pull-initial'),
+  close: () => ipcRenderer.invoke('recordingOverlay:close'),
+  stop: () => ipcRenderer.invoke('recording:stop'),
+}
+
 contextBridge.exposeInMainWorld('electronAPI', {
   minimizeWindow: (): Promise<{ ok: true } | { ok: false; error: string }> =>
     ipcRenderer.invoke('window:minimize'),
@@ -87,6 +104,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.invoke('countdown:wait-ms', ms),
 
   overlay,
+  recordingOverlay,
 
   resolveSckRecorderPath: (): Promise<ResolveSckRecorderResult> =>
     ipcRenderer.invoke('recording:resolveSck'),
