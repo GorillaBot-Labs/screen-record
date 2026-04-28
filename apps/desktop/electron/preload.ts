@@ -24,6 +24,10 @@ export type ListCaptureDevicesResult =
   | { ok: true; video: CaptureDevice[]; audio: CaptureDevice[] }
   | { ok: false; error: string }
 
+export type CaptureDisplayScreenshotResult =
+  | { ok: true; pngBase64: string; width: number; height: number }
+  | { ok: false; error: string }
+
 export type OpenCountdownOverlayResult = { ok: true } | { ok: false; error: string }
 
 export type ListRecentRecordingsResult = { urls: string[] }
@@ -76,6 +80,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   listCaptureDevices: (): Promise<ListCaptureDevicesResult> =>
     ipcRenderer.invoke('recording:listCaptureDevices'),
+
+  captureDisplayScreenshot: (displayIndex: number): Promise<CaptureDisplayScreenshotResult> =>
+    ipcRenderer.invoke('recording:captureDisplayScreenshot', displayIndex),
 
   startRecording: (options?: { captureInput?: string }): Promise<StartRecordingResult> =>
     ipcRenderer.invoke('recording:start', options ?? {}),

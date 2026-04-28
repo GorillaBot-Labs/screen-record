@@ -1,10 +1,27 @@
 import AVFoundation
+import CoreGraphics
+import CoreImage
 import CoreMedia
 import Foundation
+import ImageIO
 import ScreenCaptureKit
+import UniformTypeIdentifiers
 
 // ScreenCaptureKit (display) + AVCapture (mic) → MP4. Spawned by Electron on macOS.
 // Usage: sck-record --output <file.mp4> --display <n> --audio <n>
+
+private func pngData(from pixelBuffer: CVPixelBuffer) -> Data? {
+  let ci = CIImage(cvPixelBuffer: pixelBuffer)
+  let ctx = CIContext(options: nil)
+  guard let cg = ctx.createCGImage(ci, from: ci.extent) else { return nil }
+  let out = NSMutableData()
+  guard
+    let dest = CGImageDestinationCreateWithData(out as CFMutableData, UTType.png.identifier as CFString, 1, nil)
+  else { return nil }
+  CGImageDestinationAddImage(dest, cg, nil)
+  guard CGImageDestinationFinalize(dest) else { return nil }
+  return out as Data
+}
 
 /// Discovery-based listing (replaces deprecated `AVCaptureDevice.devices(for: .audio)`).
 private func sortedAudioCaptureDevices() -> [AVCaptureDevice] {
@@ -26,16 +43,19 @@ enum RecordError: Error, CustomStringConvertible {
   case usage
   case badDisplay(Int, Int)
   case badAudio(Int, Int)
+  case screenshot(String)
   case writer(String)
 
   var description: String {
     switch self {
     case .usage:
-      return "Usage: sck-record --output <file.mp4> --display <n> --audio <n>"
+      return "Usage: sck-record --output <file.mp4> --display <n> --audio <n> (or --list-json, or --screenshot-json --display <n>)"
     case let .badDisplay(i, max):
       return "Display index \(i) out of range (0..<\(max))"
     case let .badAudio(i, max):
       return "Audio device index \(i) out of range (0..<\(max))"
+    case .screenshot(let m):
+      return "Screenshot failed: \(m)"
     case .writer(let m): return "AVAssetWriter: \(m)"
     }
   }
@@ -284,7 +304,9 @@ private func printDeviceListJSON() async throws {
   let video = displays.enumerated().map { i, d -> Entry in
     let ew = max(16, (d.width / 16) * 16)
     let eh = max(16, (d.height / 16) * 16)
-    return Entry(index: i, name: "Display \(d.displayID) (\(ew)×\(eh))")
+    let builtIn = CGDisplayIsBuiltin(d.displayID) != 0
+    let kind = builtIn ? "Built-in Display" : "External Display"
+    return Entry(index: i, name: "\(kind) (\(ew)×\(eh))")
   }
   let audio = mics.enumerated().map { i, m in
     Entry(index: i, name: m.localizedName)
@@ -318,12 +340,154 @@ private func parseArgs() throws -> (output: URL, display: Int, audio: Int) {
   return (URL(fileURLWithPath: path), di, ai)
 }
 
+private func parseScreenshotArgs() throws -> (display: Int, maxWidth: Int?) {
+  var d: Int?
+  var maxW: Int?
+  var i = CommandLine.arguments.makeIterator()
+  _ = i.next()
+  while let arg = i.next() {
+    switch arg {
+    case "--display":
+      if let v = i.next() { d = Int(v) }
+    case "--max-width":
+      if let v = i.next() { maxW = Int(v) }
+    default:
+      break
+    }
+  }
+  guard let di = d else { throw RecordError.usage }
+  return (di, maxW)
+}
+
+private func printScreenshotJSON(displayIndex: Int, maxWidth: Int?) async throws {
+  let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
+  let displays = content.displays.sorted { $0.displayID < $1.displayID }
+  guard displayIndex >= 0, displayIndex < displays.count else {
+    throw RecordError.badDisplay(displayIndex, displays.count)
+  }
+  let display = displays[displayIndex]
+
+  let targetW: Int
+  let targetH: Int
+  if let mw = maxWidth, mw > 0, display.width > mw {
+    let scale = Double(mw) / Double(max(1, display.width))
+    targetW = max(16, Int(Double(display.width) * scale))
+    targetH = max(16, Int(Double(display.height) * scale))
+  } else {
+    targetW = display.width
+    targetH = display.height
+  }
+
+  let filter = SCContentFilter(display: display, excludingApplications: [], exceptingWindows: [])
+  let cfg = SCStreamConfiguration()
+  cfg.width = targetW
+  cfg.height = targetH
+  cfg.minimumFrameInterval = CMTime(value: 1, timescale: 5)
+  cfg.pixelFormat = kCVPixelFormatType_32BGRA
+  cfg.showsCursor = true
+  cfg.capturesAudio = false
+  cfg.queueDepth = 2
+
+  let q = DispatchQueue(label: "sck-record.screenshot")
+  final class Once {
+    private let stateQ = DispatchQueue(label: "sck-record.screenshot.once")
+    private var done = false
+    func tryMark() -> Bool {
+      stateQ.sync {
+        if done { return false }
+        done = true
+        return true
+      }
+    }
+  }
+  let once = Once()
+  final class StreamBox: @unchecked Sendable {
+    var stream: SCStream?
+  }
+  let box = StreamBox()
+
+  let done: Data = try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Data, Error>) in
+    // Fail fast if we don't get a frame quickly (avoids Electron hanging on `spawnSync`).
+    Task {
+      try? await Task.sleep(nanoseconds: 2_500_000_000)
+      if once.tryMark() {
+        cont.resume(throwing: RecordError.screenshot("timed out waiting for first frame (check Screen Recording permission)"))
+        Task { try? await box.stream?.stopCapture() }
+      }
+    }
+
+    let bridge = Bridge(
+      onVideo: { sampleBuffer, type in
+        if type == .audio { return }
+        guard once.tryMark() else { return }
+
+        guard
+          CMSampleBufferIsValid(sampleBuffer),
+          let img = CMSampleBufferGetImageBuffer(sampleBuffer)
+        else {
+          cont.resume(throwing: RecordError.screenshot("no image buffer"))
+          Task { try? await box.stream?.stopCapture() }
+          return
+        }
+        guard let data = pngData(from: img) else {
+          cont.resume(throwing: RecordError.screenshot("could not encode png"))
+          Task { try? await box.stream?.stopCapture() }
+          return
+        }
+        cont.resume(returning: data)
+        Task { try? await box.stream?.stopCapture() }
+      },
+      onAudio: { _ in },
+    )
+
+    Task {
+      do {
+        try await MainActor.run {
+          let scStream = SCStream(filter: filter, configuration: cfg, delegate: nil)
+          box.stream = scStream
+          try scStream.addStreamOutput(bridge, type: .screen, sampleHandlerQueue: q)
+          return ()
+        }
+        try await box.stream?.startCapture()
+      } catch {
+        if once.tryMark() {
+          cont.resume(throwing: error)
+        }
+        Task { try? await box.stream?.stopCapture() }
+      }
+    }
+  }
+
+  struct Root: Codable {
+    let ok: Bool
+    let pngBase64: String
+    let width: Int
+    let height: Int
+  }
+  let root = Root(ok: true, pngBase64: done.base64EncodedString(), width: targetW, height: targetH)
+  let enc = JSONEncoder()
+  enc.outputFormatting = [.sortedKeys]
+  let data = try enc.encode(root)
+  FileHandle.standardOutput.write(data)
+  FileHandle.standardOutput.write(Data([10]))
+}
+
 @main
 struct SckRecordMain {
   static func main() async {
     if CommandLine.arguments.contains("--list-json") {
       do {
         try await printDeviceListJSON()
+      } catch {
+        fputs("\(error)\n", stderr)
+        exit(1)
+      }
+      return
+    }
+    if CommandLine.arguments.contains("--screenshot-json") {
+      do {
+        let (dIdx, maxW) = try parseScreenshotArgs()
+        try await printScreenshotJSON(displayIndex: dIdx, maxWidth: maxW)
       } catch {
         fputs("\(error)\n", stderr)
         exit(1)

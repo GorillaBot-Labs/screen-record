@@ -2,6 +2,7 @@
 
 import type {
   CaptureDevice,
+  CaptureDisplayScreenshotResult,
   ElectronOverlayAPI,
   ListCaptureDevicesResult,
   ListRecentRecordingsResult,
@@ -24,6 +25,9 @@ declare global {
       overlay: ElectronOverlayAPI;
       resolveSckRecorderPath: () => Promise<ResolveSckRecorderResult>;
       listCaptureDevices: () => Promise<ListCaptureDevicesResult>;
+      captureDisplayScreenshot: (
+        displayIndex: number,
+      ) => Promise<CaptureDisplayScreenshotResult>;
       startRecording: (options?: {
         captureInput?: string;
       }) => Promise<StartRecordingResult>;

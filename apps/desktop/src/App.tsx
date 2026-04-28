@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import type { CaptureDevice } from "../electron/preload";
+import type {
+  CaptureDevice,
+  CaptureDisplayScreenshotResult,
+} from "../electron/preload";
 
 const VIDEO_INDEX_STORAGE_KEY = "screen-record:avVideoIndex";
 const AUDIO_INDEX_STORAGE_KEY = "screen-record:avAudioIndex";
@@ -113,6 +116,12 @@ export default function App() {
   const [audioDevices, setAudioDevices] = useState<CaptureDevice[]>([]);
   const [videoIndex, setVideoIndex] = useState<number | null>(null);
   const [audioIndex, setAudioIndex] = useState<number | null>(null);
+  const [displayPreview, setDisplayPreview] = useState<
+    | { kind: "loading"; index: number }
+    | { kind: "ready"; index: number; dataUrl: string; width: number; height: number }
+    | { kind: "error"; index: number; message: string }
+    | null
+  >(null);
   const [devicesLoading, setDevicesLoading] = useState(false);
   const [devicesError, setDevicesError] = useState<string | null>(null);
   const [outputPath, setOutputPath] = useState<string | null>(null);
@@ -170,6 +179,36 @@ export default function App() {
     applyDeviceSelection(video, audio);
   }, [applyDeviceSelection]);
 
+  const refreshDisplayPreview = useCallback(
+    async (index: number) => {
+      type ElectronAPIWithScreenshot = NonNullable<typeof window.electronAPI> & {
+        captureDisplayScreenshot?: (
+          displayIndex: number,
+        ) => Promise<CaptureDisplayScreenshotResult>;
+      };
+      const api = window.electronAPI as ElectronAPIWithScreenshot | undefined;
+      if (!api?.captureDisplayScreenshot) return;
+      setDisplayPreview({ kind: "loading", index });
+      const res = await api.captureDisplayScreenshot(index);
+      if (res.ok) {
+        setDisplayPreview({
+          kind: "ready",
+          index,
+          dataUrl: `data:image/png;base64,${res.pngBase64}`,
+          width: res.width,
+          height: res.height,
+        });
+      } else {
+        setDisplayPreview({
+          kind: "error",
+          index,
+          message: res.error,
+        });
+      }
+    },
+    [],
+  );
+
   const refreshRecentRecordings = useCallback(async () => {
     const api = window.electronAPI;
     if (!api) return;
@@ -226,6 +265,14 @@ export default function App() {
       offGcs();
     };
   }, [refreshDevices, refreshRecentRecordings]);
+
+  useEffect(() => {
+    if (!window.electronAPI) return;
+    if (videoIndex == null) return;
+    if (devicesLoading) return;
+    if (devicesError != null) return;
+    void refreshDisplayPreview(videoIndex);
+  }, [devicesError, devicesLoading, refreshDisplayPreview, videoIndex]);
 
   function handleVideoChange(index: number) {
     setVideoIndex(index);
@@ -475,6 +522,49 @@ export default function App() {
                         </option>
                       ))}
                     </select>
+
+                    {hasBridge && videoIndex != null ? (
+                      <div className="display-preview" aria-live="polite">
+                        <div className="display-preview-header">
+                          <span className="display-preview-label">
+                            Selected display preview
+                          </span>
+                          <button
+                            type="button"
+                            className="btn btn-ghost btn-compact"
+                            onClick={() => void refreshDisplayPreview(videoIndex)}
+                            disabled={recording || uiLockedForCountdown || devicesLoading}
+                          >
+                            Refresh preview
+                          </button>
+                        </div>
+                        {displayPreview?.kind === "loading" &&
+                        displayPreview.index === videoIndex ? (
+                          <p className="hint hint-flush">Loading preview…</p>
+                        ) : null}
+                        {displayPreview?.kind === "error" &&
+                        displayPreview.index === videoIndex ? (
+                          <p className="hint warn hint-flush">
+                            {displayPreview.message}
+                          </p>
+                        ) : null}
+                        {displayPreview?.kind === "ready" &&
+                        displayPreview.index === videoIndex ? (
+                          <img
+                            className="display-preview-image"
+                            src={displayPreview.dataUrl}
+                            alt="Screenshot of the selected display"
+                            width={displayPreview.width}
+                            height={displayPreview.height}
+                          />
+                        ) : null}
+                        {!displayPreview ? (
+                          <p className="hint hint-flush">
+                            Pick a display to see a preview.
+                          </p>
+                        ) : null}
+                      </div>
+                    ) : null}
                   </div>
                   <div>
                     <div className="field-label-row">

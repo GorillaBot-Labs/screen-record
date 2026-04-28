@@ -83,6 +83,45 @@ function listSckDevicesSync(
   }
 }
 
+function captureDisplayScreenshotSync(
+  sckPath: string,
+  displayIndex: number,
+  maxWidth = 640,
+): { ok: true; pngBase64: string; width: number; height: number } | { ok: false; error: string } {
+  const r = spawnSync(sckPath, ['--screenshot-json', '--display', String(displayIndex), '--max-width', String(maxWidth)], {
+    encoding: 'utf8',
+    maxBuffer: 8 * 1024 * 1024,
+    timeout: 6_000,
+  })
+  if (r.error) {
+    const msg = r.error.message
+    const hint = msg.includes('ETIMEDOUT')
+      ? `${msg}\n\nIf this keeps happening, macOS likely hasn’t granted Screen Recording permission yet (System Settings → Privacy & Security → Screen Recording).`
+      : msg
+    return { ok: false, error: hint }
+  }
+  if (r.status !== 0 || typeof r.stdout !== 'string') {
+    const err = typeof r.stderr === 'string' && r.stderr.trim().length > 0 ? r.stderr.trim() : 'sck-record screenshot failed.'
+    return { ok: false, error: err }
+  }
+  const trimmed = r.stdout.trim()
+  if (trimmed.length === 0) return { ok: false, error: 'Empty screenshot response.' }
+  try {
+    const o = JSON.parse(trimmed) as {
+      ok?: boolean
+      pngBase64?: string
+      width?: number
+      height?: number
+    }
+    if (!o.ok || typeof o.pngBase64 !== 'string' || typeof o.width !== 'number' || typeof o.height !== 'number') {
+      return { ok: false, error: 'Invalid screenshot JSON.' }
+    }
+    return { ok: true, pngBase64: o.pngBase64, width: o.width, height: o.height }
+  } catch {
+    return { ok: false, error: 'Could not parse screenshot JSON.' }
+  }
+}
+
 function parseCaptureIndices(input: string): { video: number; audio: number } {
   const parts = input.split(':')
   const video = Number.parseInt(parts[0] ?? '', 10)
@@ -340,6 +379,30 @@ ipcMain.handle(
       error:
         'Could not list displays or microphones (sck-record --list-json failed). Grant Screen Recording if prompted, then try again.',
     }
+  },
+)
+
+ipcMain.handle(
+  'recording:captureDisplayScreenshot',
+  async (_event, displayIndex: unknown): Promise<
+    | { ok: true; pngBase64: string; width: number; height: number }
+    | { ok: false; error: string }
+  > => {
+    if (process.platform !== 'darwin') {
+      return { ok: false, error: 'Screen recording is only supported on macOS.' }
+    }
+    if (typeof displayIndex !== 'number' || !Number.isFinite(displayIndex)) {
+      return { ok: false, error: 'Invalid display index.' }
+    }
+    const sckPath = resolveSckRecorderPath()
+    if (!sckPath) {
+      return {
+        ok: false,
+        error:
+          'Native recorder (sck-record) is missing. Run `npm run build:native` from the project root, then refresh.',
+      }
+    }
+    return captureDisplayScreenshotSync(sckPath, displayIndex, 760)
   },
 )
 

@@ -1,10 +1,13 @@
 {
   "name": "screen-record-monorepo",
   "private": true,
-  "workspaces": ["apps/*"],
+  "workspaces": [
+    "apps/*"
+  ],
   "scripts": {
     "dev:desktop": "npm run dev -w screen-record",
     "dev:web": "npm run dev -w screen-record-web",
+    "build": "npm run build -w screen-record && npm run build -w screen-record-web",
     "build:desktop": "npm run build -w screen-record",
     "build:web": "npm run build -w screen-record-web",
     "db:generate": "npm run db:generate -w screen-record-web"
