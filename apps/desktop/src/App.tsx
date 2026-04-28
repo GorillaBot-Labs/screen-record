@@ -183,13 +183,15 @@ export default function App() {
     async (index: number) => {
       type ElectronAPIWithScreenshot = NonNullable<typeof window.electronAPI> & {
         captureDisplayScreenshot?: (
-          displayIndex: number,
+          displayIdOrIndex: number,
         ) => Promise<CaptureDisplayScreenshotResult>;
       };
       const api = window.electronAPI as ElectronAPIWithScreenshot | undefined;
       if (!api?.captureDisplayScreenshot) return;
+      const device = videoDevices.find((d) => d.index === index);
+      const selector = device?.displayId ?? index;
       setDisplayPreview({ kind: "loading", index });
-      const res = await api.captureDisplayScreenshot(index);
+      const res = await api.captureDisplayScreenshot(selector);
       if (res.ok) {
         setDisplayPreview({
           kind: "ready",
@@ -206,7 +208,7 @@ export default function App() {
         });
       }
     },
-    [],
+    [videoDevices],
   );
 
   const refreshRecentRecordings = useCallback(async () => {

@@ -11,8 +11,8 @@ echo "==> Build and package (includes native sck-record via npm run build)"
 npm run build:mac
 
 echo ""
-echo "==> Install Screen Record.app to Applications"
-bash "${SCRIPT_DIR}/install-mac-app.sh"
+echo "==> Reinstall Screen Record.app + reset macOS permissions"
+bash "${SCRIPT_DIR}/install-mac-app.sh" --reinstall --reset-permissions
 
 echo ""
 echo "==> Deploy finished. Installers and metadata under: ${ROOT}/release/"

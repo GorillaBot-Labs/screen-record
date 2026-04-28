@@ -295,6 +295,7 @@ private func printDeviceListJSON() async throws {
   let mics = sortedAudioCaptureDevices()
   struct Entry: Codable {
     let index: Int
+    let displayId: UInt32
     let name: String
   }
   struct Root: Codable {
@@ -306,10 +307,10 @@ private func printDeviceListJSON() async throws {
     let eh = max(16, (d.height / 16) * 16)
     let builtIn = CGDisplayIsBuiltin(d.displayID) != 0
     let kind = builtIn ? "Built-in Display" : "External Display"
-    return Entry(index: i, name: "\(kind) (\(ew)×\(eh))")
+    return Entry(index: i, displayId: d.displayID, name: "\(kind) (\(ew)×\(eh))")
   }
   let audio = mics.enumerated().map { i, m in
-    Entry(index: i, name: m.localizedName)
+    Entry(index: i, displayId: 0, name: m.localizedName)
   }
   let enc = JSONEncoder()
   enc.outputFormatting = [.sortedKeys]

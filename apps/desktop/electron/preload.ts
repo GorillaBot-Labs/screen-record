@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from 'electron'
+import { contextBridge, desktopCapturer, ipcRenderer } from 'electron'
 
 export type ResolveSckRecorderResult =
   | { path: string }
@@ -18,7 +18,7 @@ export type RecordingGcsUploadPayload =
   | { ok: true; url: string; outputPath: string; localFileDeleted?: boolean }
   | { ok: false; error: string; outputPath: string }
 
-export type CaptureDevice = { index: number; name: string }
+export type CaptureDevice = { index: number; name: string; displayId?: number }
 
 export type ListCaptureDevicesResult =
   | { ok: true; video: CaptureDevice[]; audio: CaptureDevice[] }
@@ -81,8 +81,34 @@ contextBridge.exposeInMainWorld('electronAPI', {
   listCaptureDevices: (): Promise<ListCaptureDevicesResult> =>
     ipcRenderer.invoke('recording:listCaptureDevices'),
 
-  captureDisplayScreenshot: (displayIndex: number): Promise<CaptureDisplayScreenshotResult> =>
-    ipcRenderer.invoke('recording:captureDisplayScreenshot', displayIndex),
+  captureDisplayScreenshot: async (displayIdOrIndex: number): Promise<CaptureDisplayScreenshotResult> => {
+    // Prefer Electron's desktopCapturer for previews because it uses the app's
+    // Screen Recording permission (avoids helper-binary permission mismatches).
+    try {
+      const sources = await desktopCapturer.getSources({
+        types: ['screen'],
+        thumbnailSize: { width: 760, height: 760 },
+        fetchWindowIcons: false,
+      })
+      const asId = String(displayIdOrIndex)
+      const match =
+        sources.find((s) => (s.display_id ? String(s.display_id) === asId : false)) ??
+        sources.find((s) => s.id === `screen:${asId}`)
+      if (!match) {
+        return { ok: false, error: 'Could not find the selected display to preview.' }
+      }
+      const png = match.thumbnail.toPNG()
+      return {
+        ok: true,
+        pngBase64: png.toString('base64'),
+        width: match.thumbnail.getSize().width,
+        height: match.thumbnail.getSize().height,
+      }
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e)
+      return { ok: false, error: msg }
+    }
+  },
 
   startRecording: (options?: { captureInput?: string }): Promise<StartRecordingResult> =>
     ipcRenderer.invoke('recording:start', options ?? {}),
