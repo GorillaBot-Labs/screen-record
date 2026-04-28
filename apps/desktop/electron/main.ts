@@ -53,6 +53,31 @@ type CaptureDevice = { index: number; name: string; displayId?: number }
 
 let recordingChild: ChildProcess | null = null
 
+function parseMacOsMajor(systemVersion: string): number | null {
+  // Electron's `app.getSystemVersion()` returns e.g. "10.15.7", "13.6.4", "14.5"
+  const rawMajor = systemVersion.split('.')[0]?.trim()
+  if (!rawMajor) return null
+  const major = Number.parseInt(rawMajor, 10)
+  return Number.isFinite(major) ? major : null
+}
+
+function ensureSupportedMacOs(): { ok: true } | { ok: false; error: string } {
+  if (process.platform !== 'darwin') {
+    return { ok: false, error: 'Screen recording is only supported on macOS.' }
+  }
+  // Electron exposes system version via `process.getSystemVersion()` in the main process.
+  const sysVer = typeof process.getSystemVersion === 'function' ? process.getSystemVersion() : ''
+  const major = parseMacOsMajor(sysVer)
+  // ScreenCaptureKit is macOS 12.3+, but this app targets modern macOS and is documented as 13+.
+  if (major != null && major < 13) {
+    return {
+      ok: false,
+      error: `Unsupported macOS version (${sysVer || 'unknown'}). Screen Record requires macOS 13+ (ScreenCaptureKit).`,
+    }
+  }
+  return { ok: true }
+}
+
 function resolveSckRecorderPath(): string | null {
   if (process.platform !== 'darwin') return null
   if (app.isPackaged) {
@@ -63,46 +88,134 @@ function resolveSckRecorderPath(): string | null {
   return existsSync(dev) ? dev : null
 }
 
-function listSckDevicesSync(
-  sckPath: string,
-): { video: CaptureDevice[]; audio: CaptureDevice[] } | null {
-  const r = spawnSync(sckPath, ['--list-json'], {
-    encoding: 'utf8',
-    maxBuffer: 4 * 1024 * 1024,
-    timeout: 25_000,
+ipcMain.handle('system:getInfo', () => {
+  const sysVer = typeof process.getSystemVersion === 'function' ? process.getSystemVersion() : null
+  return {
+    platform: process.platform,
+    arch: process.arch,
+    systemVersion: sysVer,
+    isPackaged: app.isPackaged,
+    execPath: process.execPath,
+  }
+})
+
+type SpawnResult = { status: number | null; stdout: string; stderr: string; timedOut: boolean }
+
+function spawnCollectUtf8(
+  cmd: string,
+  args: string[],
+  opts: { timeoutMs: number; maxBytes: number },
+): Promise<SpawnResult> {
+  return new Promise((resolve) => {
+    const child = spawn(cmd, args, { stdio: ['ignore', 'pipe', 'pipe'] })
+    const out: Buffer[] = []
+    const err: Buffer[] = []
+    let outBytes = 0
+    let errBytes = 0
+    let timedOut = false
+
+    const killTimer = setTimeout(() => {
+      timedOut = true
+      try {
+        child.kill('SIGKILL')
+      } catch {
+        /* ignore */
+      }
+    }, opts.timeoutMs)
+
+    const finish = (status: number | null) => {
+      clearTimeout(killTimer)
+      resolve({
+        status,
+        stdout: Buffer.concat(out).toString('utf8'),
+        stderr: Buffer.concat(err).toString('utf8'),
+        timedOut,
+      })
+    }
+
+    child.stdout?.on('data', (b: Buffer) => {
+      outBytes += b.length
+      if (outBytes + errBytes > opts.maxBytes) {
+        try {
+          child.kill('SIGKILL')
+        } catch {
+          /* ignore */
+        }
+        return
+      }
+      out.push(b)
+    })
+    child.stderr?.on('data', (b: Buffer) => {
+      errBytes += b.length
+      if (outBytes + errBytes > opts.maxBytes) {
+        try {
+          child.kill('SIGKILL')
+        } catch {
+          /* ignore */
+        }
+        return
+      }
+      err.push(b)
+    })
+    child.on('close', (code) => finish(code))
+    child.on('error', () => finish(1))
   })
-  if (r.error || r.status !== 0 || typeof r.stdout !== 'string') return null
+}
+
+let cachedDevices:
+  | { atMs: number; data: { video: CaptureDevice[]; audio: CaptureDevice[] } }
+  | null = null
+
+async function listSckDevices(
+  sckPath: string,
+  opts: { cacheMaxAgeMs: number } = { cacheMaxAgeMs: 2000 },
+): Promise<{ video: CaptureDevice[]; audio: CaptureDevice[] } | null> {
+  const now = Date.now()
+  if (cachedDevices && now - cachedDevices.atMs <= opts.cacheMaxAgeMs) {
+    return cachedDevices.data
+  }
+  const r = await spawnCollectUtf8(sckPath, ['--list-json'], {
+    timeoutMs: 25_000,
+    maxBytes: 4 * 1024 * 1024,
+  })
+  if (r.timedOut || r.status !== 0) return null
   const trimmed = r.stdout.trim()
   if (trimmed.length === 0) return null
   try {
     const o = JSON.parse(trimmed) as { video?: CaptureDevice[]; audio?: CaptureDevice[] }
     if (!Array.isArray(o.video) || !Array.isArray(o.audio)) return null
-    return { video: o.video, audio: o.audio }
+    const data = { video: o.video, audio: o.audio }
+    cachedDevices = { atMs: now, data }
+    return data
   } catch {
     return null
   }
 }
 
-function captureDisplayScreenshotSync(
+async function captureDisplayScreenshot(
   sckPath: string,
   displayIndex: number,
-  maxWidth = 640,
-): { ok: true; pngBase64: string; width: number; height: number } | { ok: false; error: string } {
-  const r = spawnSync(sckPath, ['--screenshot-json', '--display', String(displayIndex), '--max-width', String(maxWidth)], {
-    encoding: 'utf8',
-    maxBuffer: 8 * 1024 * 1024,
-    timeout: 6_000,
-  })
-  if (r.error) {
-    const msg = r.error.message
-    const hint = msg.includes('ETIMEDOUT')
-      ? `${msg}\n\nIf this keeps happening, macOS likely hasn’t granted Screen Recording permission yet (System Settings → Privacy & Security → Screen Recording).`
-      : msg
-    return { ok: false, error: hint }
+  params: { maxWidth?: number; timeoutMs?: number } = {},
+): Promise<{ ok: true; pngBase64: string; width: number; height: number } | { ok: false; error: string }> {
+  const maxWidth = params.maxWidth ?? 640
+  // Keep UI responsive: on blocked permission we want a fast fail, not a long main-process stall.
+  const timeoutMs = params.timeoutMs ?? 2200
+
+  const r = await spawnCollectUtf8(
+    sckPath,
+    ['--screenshot-json', '--display', String(displayIndex), '--max-width', String(maxWidth)],
+    { timeoutMs, maxBytes: 8 * 1024 * 1024 },
+  )
+  if (r.timedOut) {
+    return {
+      ok: false,
+      error:
+        'Screenshot failed: timed out waiting for first frame (check Screen Recording permission)',
+    }
   }
-  if (r.status !== 0 || typeof r.stdout !== 'string') {
-    const err = typeof r.stderr === 'string' && r.stderr.trim().length > 0 ? r.stderr.trim() : 'sck-record screenshot failed.'
-    return { ok: false, error: err }
+  if (r.status !== 0) {
+    const errMsg = r.stderr.trim().length > 0 ? r.stderr.trim() : 'sck-record screenshot failed.'
+    return { ok: false, error: errMsg }
   }
   const trimmed = r.stdout.trim()
   if (trimmed.length === 0) return { ok: false, error: 'Empty screenshot response.' }
@@ -359,9 +472,8 @@ ipcMain.handle(
     | { ok: true; video: CaptureDevice[]; audio: CaptureDevice[] }
     | { ok: false; error: string }
   > => {
-    if (process.platform !== 'darwin') {
-      return { ok: false, error: 'Screen recording is only supported on macOS.' }
-    }
+    const supported = ensureSupportedMacOs()
+    if (!supported.ok) return supported
     const sckPath = resolveSckRecorderPath()
     if (!sckPath) {
       return {
@@ -370,7 +482,7 @@ ipcMain.handle(
           'Native recorder (sck-record) is missing. Run `npm run build:native` from the project root, then refresh.',
       }
     }
-    const listed = listSckDevicesSync(sckPath)
+    const listed = await listSckDevices(sckPath)
     if (listed && (listed.video.length > 0 || listed.audio.length > 0)) {
       return { ok: true, video: listed.video, audio: listed.audio }
     }
@@ -388,9 +500,8 @@ ipcMain.handle(
     | { ok: true; pngBase64: string; width: number; height: number }
     | { ok: false; error: string }
   > => {
-    if (process.platform !== 'darwin') {
-      return { ok: false, error: 'Screen recording is only supported on macOS.' }
-    }
+    const supported = ensureSupportedMacOs()
+    if (!supported.ok) return supported
     if (typeof displayIndex !== 'number' || !Number.isFinite(displayIndex)) {
       return { ok: false, error: 'Invalid display selector.' }
     }
@@ -406,7 +517,7 @@ ipcMain.handle(
     // Renderer may pass either the "display index" (0..N-1) or a ScreenCaptureKit displayId.
     // `sck-record --screenshot-json` expects an index, so map displayId → index when needed.
     let idx = displayIndex
-    const listed = listSckDevicesSync(sckPath)
+    const listed = await listSckDevices(sckPath)
     if (listed?.video?.length) {
       const asIndex = listed.video.some((d) => d.index === displayIndex)
       if (!asIndex) {
@@ -415,7 +526,7 @@ ipcMain.handle(
       }
     }
 
-    return captureDisplayScreenshotSync(sckPath, idx, 760)
+    return captureDisplayScreenshot(sckPath, idx, { maxWidth: 760 })
   },
 )
 
@@ -432,9 +543,8 @@ ipcMain.handle(
       return { ok: false, error: 'Recording already in progress.' }
     }
 
-    if (process.platform !== 'darwin') {
-      return { ok: false, error: 'Recording is only supported on macOS.' }
-    }
+    const supported = ensureSupportedMacOs()
+    if (!supported.ok) return supported
 
     const sckPath = resolveSckRecorderPath()
     if (!sckPath) {

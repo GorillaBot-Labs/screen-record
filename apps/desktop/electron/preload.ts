@@ -38,6 +38,14 @@ export type OpenScreenRecordingSettingsResult =
   | { ok: true }
   | { ok: false; error: string }
 
+export type SystemInfo = {
+  platform: string
+  arch: string
+  systemVersion: string | null
+  isPackaged: boolean
+  execPath: string
+}
+
 /** Full-screen countdown overlay window (see `overlay.html` / `src/overlay.tsx`). */
 export type ElectronOverlayAPI = {
   open: (initial: number) => Promise<OpenCountdownOverlayResult>
@@ -106,6 +114,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   openScreenRecordingSettings: (): Promise<OpenScreenRecordingSettingsResult> =>
     ipcRenderer.invoke('system:openScreenRecordingSettings'),
+
+  getSystemInfo: (): Promise<SystemInfo> => ipcRenderer.invoke('system:getInfo'),
 
   openExternalUrl: (url: string): Promise<OpenExternalUrlResult> =>
     ipcRenderer.invoke('shell:openExternal', url),

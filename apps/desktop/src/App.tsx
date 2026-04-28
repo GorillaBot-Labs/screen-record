@@ -145,6 +145,7 @@ export default function App() {
     | { kind: "unknown" }
     | { kind: "checking" }
     | { kind: "ready" }
+    | { kind: "unsupported"; message: string }
     | { kind: "blocked"; message: string }
   >({ kind: "unknown" });
   const [outputPath, setOutputPath] = useState<string | null>(null);
@@ -318,6 +319,15 @@ export default function App() {
         });
         setScreenReadiness({ kind: "ready" });
       } else {
+        if (/requires macos 13\+/i.test(res.error) || /unsupported macos version/i.test(res.error)) {
+          pushDiagnosticsEvent({
+            kind: "permission.screen.check.unsupported",
+            message: res.error,
+            data: { index, selector, ms: Math.round(performance.now() - t0) },
+          });
+          setScreenReadiness({ kind: "unsupported", message: res.error });
+          return;
+        }
         pushDiagnosticsEvent({
           kind: "permission.screen.check.blocked",
           message: res.error,
@@ -717,10 +727,25 @@ export default function App() {
   }
 
   async function handleCopyDiagnostics() {
+    type ElectronAPIWithSystemInfo = NonNullable<typeof window.electronAPI> & {
+      getSystemInfo?: () => Promise<{
+        platform: string;
+        arch: string;
+        systemVersion: string | null;
+        isPackaged: boolean;
+        execPath: string;
+      }>;
+    };
+    const api = window.electronAPI as ElectronAPIWithSystemInfo | undefined;
+    const systemInfo = api?.getSystemInfo ? await api.getSystemInfo() : null;
     const header = [
       "Screen Record — diagnostics",
       `capturedAt=${new Date().toISOString()}`,
       `hasBridge=${String(Boolean(window.electronAPI))}`,
+      `systemVersion=${systemInfo?.systemVersion ?? ""}`,
+      `execPath=${systemInfo?.execPath ?? ""}`,
+      `isPackaged=${systemInfo ? String(systemInfo.isPackaged) : ""}`,
+      `arch=${systemInfo?.arch ?? ""}`,
       `userAgent=${navigator.userAgent}`,
       `platform=${navigator.platform}`,
       `language=${navigator.language}`,
@@ -909,6 +934,8 @@ export default function App() {
                       ? "readiness readiness--ready"
                       : screenReadiness.kind === "checking"
                         ? "readiness readiness--checking"
+                        : screenReadiness.kind === "unsupported"
+                          ? "readiness readiness--blocked"
                         : screenReadiness.kind === "blocked"
                           ? "readiness readiness--blocked"
                           : "readiness"
@@ -923,11 +950,21 @@ export default function App() {
                         ? "Ready"
                         : screenReadiness.kind === "checking"
                           ? "Checking…"
+                          : screenReadiness.kind === "unsupported"
+                            ? "Unsupported macOS"
                           : screenReadiness.kind === "blocked"
                             ? "Permission required"
                             : "Not checked yet"}
                     </div>
                   </div>
+
+                  {screenReadiness.kind === "unsupported" ? (
+                    <p className="readiness-detail">
+                      This Mac’s OS version doesn’t support the capture pipeline used by Screen
+                      Record (ScreenCaptureKit). Upgrade to macOS 13+.
+                      <span className="readiness-detail-muted"> Error: {screenReadiness.message}</span>
+                    </p>
+                  ) : null}
 
                   {screenReadiness.kind === "blocked" ? (
                     <p className="readiness-detail">
