@@ -417,7 +417,7 @@ export default function App() {
         data: { videoIndex, audioIndex },
       });
       setCountdown(3);
-      const overlayRes = await api.overlay.open(3);
+      const overlayRes = await api.overlay.open(3, videoIndex);
       if (!overlayRes.ok) {
         setCountdown(null);
         setStatus(`Could not open countdown overlay: ${overlayRes.error}`);

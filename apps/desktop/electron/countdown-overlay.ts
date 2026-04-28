@@ -11,6 +11,8 @@ let paths: CountdownOverlayPaths | null = null
 let overlayWindow: BrowserWindow | null = null
 /** Consumed by the `overlay:pull-initial` handler after the overlay page loads. */
 let overlayPendingInitial: number | null = null
+/** Target display index (as reported by sck-record) for the next overlay open. */
+let overlayPendingDisplayIndex: number | null = null
 /**
  * Skip is handled in the main process so countdown delays stay accurate while the
  * main BrowserWindow is minimized (Chromium heavily throttles renderer timers).
@@ -19,23 +21,15 @@ let overlayCountdownSkipRequested = false
 
 let ipcRegistered = false
 
-function unionDisplayBounds(): Electron.Rectangle {
+function boundsForDisplayIndex(displayIndex: number | null): Electron.Rectangle {
   const displays = screen.getAllDisplays()
-  let minX = Infinity
-  let minY = Infinity
-  let maxX = -Infinity
-  let maxY = -Infinity
-  for (const d of displays) {
-    const { x, y, width, height } = d.bounds
-    minX = Math.min(minX, x)
-    minY = Math.min(minY, y)
-    maxX = Math.max(maxX, x + width)
-    maxY = Math.max(maxY, y + height)
-  }
-  if (!Number.isFinite(minX)) {
+  if (displays.length === 0) return screen.getPrimaryDisplay().bounds
+  if (typeof displayIndex !== 'number' || !Number.isFinite(displayIndex)) {
     return screen.getPrimaryDisplay().bounds
   }
-  return { x: minX, y: minY, width: maxX - minX, height: maxY - minY }
+  const i = Math.trunc(displayIndex)
+  const d = displays[i]
+  return d?.bounds ?? screen.getPrimaryDisplay().bounds
 }
 
 function destroyOverlayWindow() {
@@ -57,7 +51,7 @@ function createOverlayWindow(): Promise<void> {
   const { preloadPath, rendererDist, viteDevServerUrl } = paths
 
   return new Promise((resolve, reject) => {
-    const bounds = unionDisplayBounds()
+    const bounds = boundsForDisplayIndex(overlayPendingDisplayIndex)
     const win = new BrowserWindow({
       x: bounds.x,
       y: bounds.y,
@@ -128,7 +122,11 @@ export function registerCountdownOverlayIpc(p: CountdownOverlayPaths): void {
 
   ipcMain.handle(
     'overlay:open',
-    async (_event, initial: unknown): Promise<{ ok: true } | { ok: false; error: string }> => {
+    async (
+      _event,
+      initial: unknown,
+      displayIndex: unknown,
+    ): Promise<{ ok: true } | { ok: false; error: string }> => {
       if (typeof initial !== 'number' || !Number.isFinite(initial)) {
         return { ok: false, error: 'Invalid countdown value.' }
       }
@@ -136,10 +134,13 @@ export function registerCountdownOverlayIpc(p: CountdownOverlayPaths): void {
         destroyOverlayWindow()
         overlayCountdownSkipRequested = false
         overlayPendingInitial = initial
+        overlayPendingDisplayIndex =
+          typeof displayIndex === 'number' && Number.isFinite(displayIndex) ? displayIndex : null
         await createOverlayWindow()
         return { ok: true }
       } catch (e) {
         overlayPendingInitial = null
+        overlayPendingDisplayIndex = null
         destroyOverlayWindow()
         const msg = e instanceof Error ? e.message : String(e)
         return { ok: false, error: msg }

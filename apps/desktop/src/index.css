@@ -763,10 +763,24 @@ select.app-select:focus-visible {
 }
 
 .app-details-meta {
-  font-size: 0.75rem;
-  font-weight: 650;
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.35rem;
+  height: 1.2rem;
+  padding: 0 0.45rem;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: rgba(15, 23, 42, 0.04);
+  font-size: 0.7rem;
+  font-weight: 700;
   color: var(--text-subtle);
-  letter-spacing: 0.02em;
+  letter-spacing: 0.01em;
+}
+
+.app-details-meta:empty {
+  display: none;
 }
 
 .recent-controls {
@@ -866,7 +880,7 @@ select.app-select:focus-visible {
   color: var(--text-muted);
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-start;
   gap: 0.5rem;
   user-select: none;
 }

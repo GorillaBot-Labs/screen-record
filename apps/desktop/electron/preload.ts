@@ -48,7 +48,7 @@ export type SystemInfo = {
 
 /** Full-screen countdown overlay window (see `overlay.html` / `src/overlay.tsx`). */
 export type ElectronOverlayAPI = {
-  open: (initial: number) => Promise<OpenCountdownOverlayResult>
+  open: (initial: number, displayIndex?: number | null) => Promise<OpenCountdownOverlayResult>
   /** Called once from the overlay page so the main process can return the initial digit and show the window. */
   pullInitialCountdown: () => Promise<number | null>
   setValue: (value: number) => Promise<void>
@@ -59,7 +59,8 @@ export type ElectronOverlayAPI = {
 }
 
 const overlay: ElectronOverlayAPI = {
-  open: (initial: number) => ipcRenderer.invoke('overlay:open', initial),
+  open: (initial: number, displayIndex?: number | null) =>
+    ipcRenderer.invoke('overlay:open', initial, displayIndex ?? null),
   pullInitialCountdown: () => ipcRenderer.invoke('overlay:pull-initial'),
   setValue: (value: number) => ipcRenderer.invoke('overlay:set', value),
   close: () => ipcRenderer.invoke('overlay:close'),
