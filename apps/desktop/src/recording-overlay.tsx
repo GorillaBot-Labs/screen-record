@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { createRoot } from 'react-dom/client'
+import { Square } from 'lucide-react'
 
 import './index.css'
 import './recording-overlay.css'
@@ -57,7 +58,8 @@ function RecordingOverlayApp() {
       </div>
 
       <button type="button" className="recording-overlay-stop" onClick={handleStop}>
-        Stop
+        <Square size={16} aria-hidden />
+        <span>Stop</span>
       </button>
     </div>
   )

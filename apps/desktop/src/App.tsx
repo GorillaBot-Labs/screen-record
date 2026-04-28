@@ -1,4 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  ArrowUpRight,
+  Copy,
+  ExternalLink,
+  FileText,
+  RefreshCw,
+  Rocket,
+} from "lucide-react";
 
 import type {
   CaptureDevice,
@@ -648,7 +656,8 @@ export default function App() {
                   uiLockedForCountdown
                 }
               >
-                Refresh devices
+                <RefreshCw size={16} aria-hidden />
+                <span>Refresh devices</span>
               </button>
             </div>
             <div className="app-card-body">
@@ -746,7 +755,8 @@ export default function App() {
               onClick={() => void handleStart()}
               disabled={!canRecord}
             >
-              Start recording
+              <Rocket size={16} aria-hidden />
+              <span>Start recording</span>
             </button>
             {hasBridge ? (
               <p className="app-actions-hint">
@@ -792,14 +802,16 @@ export default function App() {
                       className="btn btn-primary"
                       onClick={() => void handleCopyShareLink()}
                     >
-                      Copy
+                      <Copy size={16} aria-hidden />
+                      <span>Copy</span>
                     </button>
                     <button
                       type="button"
                       className="btn btn-outline"
                       onClick={() => void handleOpenRecordingUrl(shareUrl)}
                     >
-                      Open
+                      <ExternalLink size={16} aria-hidden />
+                      <span>Open</span>
                     </button>
                     {outputPath ? (
                       <button
@@ -807,7 +819,8 @@ export default function App() {
                         className="btn btn-ghost"
                         onClick={() => void handleRevealOutputPath()}
                       >
-                        Reveal file
+                        <ArrowUpRight size={16} aria-hidden />
+                        <span>Reveal file</span>
                       </button>
                     ) : null}
                   </div>
@@ -840,7 +853,8 @@ export default function App() {
                     onClick={() => void refreshRecentRecordings()}
                     disabled={recording || uiLockedForCountdown}
                   >
-                    Refresh
+                    <RefreshCw size={15} aria-hidden />
+                    <span>Refresh</span>
                   </button>
                 </div>
 
@@ -862,14 +876,16 @@ export default function App() {
                               className="btn btn-outline btn-compact"
                               onClick={() => void handleCopyRecordingUrl(url)}
                             >
-                              Copy
+                              <Copy size={15} aria-hidden />
+                              <span>Copy</span>
                             </button>
                             <button
                               type="button"
                               className="btn btn-outline btn-compact"
                               onClick={() => void handleOpenRecordingUrl(url)}
                             >
-                              Open
+                              <ExternalLink size={15} aria-hidden />
+                              <span>Open</span>
                             </button>
                           </div>
                         </div>
@@ -885,7 +901,10 @@ export default function App() {
           ) : null}
 
           <details className="app-details">
-            <summary>Recorder log</summary>
+            <summary>
+              <FileText size={16} aria-hidden />
+              <span>Recorder log</span>
+            </summary>
             <div className="app-details-body">
               <pre className="log">{log || "—"}</pre>
             </div>
@@ -893,7 +912,10 @@ export default function App() {
 
           <details className="app-details" aria-labelledby="diagnostics-heading">
             <summary id="diagnostics-heading">
-              <span>Diagnostics</span>
+              <span className="app-details-summary-left">
+                <FileText size={16} aria-hidden />
+                <span>Diagnostics</span>
+              </span>
               <span className="app-details-meta">
                 {diagnosticsEvents.length > 0 ? `${diagnosticsEvents.length}` : ""}
               </span>
@@ -909,7 +931,8 @@ export default function App() {
                   onClick={() => void handleCopyDiagnostics()}
                   disabled={uiLockedForCountdown}
                 >
-                  Copy diagnostics
+                  <Copy size={15} aria-hidden />
+                  <span>Copy diagnostics</span>
                 </button>
               </div>
               <pre className="log log--diagnostics">
