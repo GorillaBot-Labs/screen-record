@@ -4,6 +4,7 @@ import {
   Copy,
   ExternalLink,
   FileText,
+  Monitor,
   RefreshCw,
   Rocket,
 } from "lucide-react";
@@ -708,7 +709,9 @@ export default function App() {
                             role="radio"
                             aria-checked={selected}
                           >
-                            <span className="screen-card-screen" aria-hidden />
+                            <span className="screen-card-screen" aria-hidden>
+                              <Monitor size={72} aria-hidden />
+                            </span>
                             <span className="screen-card-text">
                               <span className="screen-card-title">{d.name}</span>
                               <span className="screen-card-meta">

@@ -270,27 +270,18 @@ body {
 }
 
 .screen-card-screen {
-  display: block;
+  display: grid;
+  place-items: center;
   width: 100%;
   aspect-ratio: 16 / 9;
-  background: radial-gradient(
-      110% 85% at 50% 15%,
-      rgba(59, 130, 246, 0.18),
-      transparent 60%
-    ),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.75), transparent 55%),
-    #e9edf5;
+  background: #eef2f7;
   border-bottom: 1px solid var(--border);
+  color: rgba(15, 23, 42, 0.68);
 }
 
 .screen-card--selected .screen-card-screen {
-  background: radial-gradient(
-      110% 85% at 50% 15%,
-      rgba(59, 130, 246, 0.26),
-      transparent 60%
-    ),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.78), transparent 55%),
-    #e9edf5;
+  background: #e8f0ff;
+  color: rgba(37, 99, 235, 0.9);
 }
 
 .screen-card-text {
