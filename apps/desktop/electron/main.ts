@@ -49,7 +49,7 @@ let trayRecordingTick: ReturnType<typeof setInterval> | null = null
 /** Default `displayIndex:audioIndex` when the renderer omits `captureInput`. */
 const DEFAULT_CAPTURE_INPUT = '0:0'
 
-type CaptureDevice = { index: number; name: string }
+type CaptureDevice = { index: number; name: string; displayId?: number }
 
 let recordingChild: ChildProcess | null = null
 
@@ -392,7 +392,7 @@ ipcMain.handle(
       return { ok: false, error: 'Screen recording is only supported on macOS.' }
     }
     if (typeof displayIndex !== 'number' || !Number.isFinite(displayIndex)) {
-      return { ok: false, error: 'Invalid display index.' }
+      return { ok: false, error: 'Invalid display selector.' }
     }
     const sckPath = resolveSckRecorderPath()
     if (!sckPath) {
@@ -402,7 +402,20 @@ ipcMain.handle(
           'Native recorder (sck-record) is missing. Run `npm run build:native` from the project root, then refresh.',
       }
     }
-    return captureDisplayScreenshotSync(sckPath, displayIndex, 760)
+
+    // Renderer may pass either the "display index" (0..N-1) or a ScreenCaptureKit displayId.
+    // `sck-record --screenshot-json` expects an index, so map displayId → index when needed.
+    let idx = displayIndex
+    const listed = listSckDevicesSync(sckPath)
+    if (listed?.video?.length) {
+      const asIndex = listed.video.some((d) => d.index === displayIndex)
+      if (!asIndex) {
+        const asDisplayId = listed.video.find((d) => d.displayId === displayIndex)
+        if (asDisplayId) idx = asDisplayId.index
+      }
+    }
+
+    return captureDisplayScreenshotSync(sckPath, idx, 760)
   },
 )
 
@@ -411,7 +424,10 @@ ipcMain.handle(
   async (
     event,
     options: { captureInput?: string } = {},
-  ): Promise<{ ok: true; outputPath: string } | { ok: false; error: string }> => {
+  ): Promise<
+    | { ok: true; outputPath: string; recordingStartedAtMs: number }
+    | { ok: false; error: string }
+  > => {
     if (recordingChild) {
       return { ok: false, error: 'Recording already in progress.' }
     }
@@ -448,6 +464,7 @@ ipcMain.handle(
 
     recordingChild = child
     startTrayRecordingPresentation()
+    const startedAtMs = recordingStartedAtMs ?? Date.now()
 
     const sender = event.sender
     forwardStderrToRenderer(sender, 'Using ScreenCaptureKit (sck-record).\n')
@@ -510,7 +527,7 @@ ipcMain.handle(
     })
 
     updateTrayMenu()
-    return { ok: true, outputPath }
+    return { ok: true, outputPath, recordingStartedAtMs: startedAtMs }
   })
 
 ipcMain.handle('window:minimize', (): { ok: true } | { ok: false; error: string } => {
@@ -532,6 +549,32 @@ ipcMain.handle('recording:stop', async (): Promise<{ ok: true } | { ok: false; e
 ipcMain.handle('recordings:listRecent', (): { urls: string[] } => {
   return { urls: readRecentRecordingUrls() }
 })
+
+ipcMain.handle(
+  'system:openScreenRecordingSettings',
+  async (): Promise<{ ok: true } | { ok: false; error: string }> => {
+    if (process.platform !== 'darwin') {
+      return { ok: false, error: 'System Settings deep link is only supported on macOS.' }
+    }
+    const candidates = [
+      // Ventura+ / Sonoma: ScreenCapture is under Privacy & Security.
+      'x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture',
+      // Older macOS: Security & Privacy (best-effort).
+      'x-apple.systempreferences:com.apple.preference.security?Privacy',
+    ]
+    let lastErr: string | null = null
+    for (const url of candidates) {
+      try {
+        // shell.openExternal resolves even if macOS ignores the deep link; treat that as success.
+        await shell.openExternal(url)
+        return { ok: true }
+      } catch (e) {
+        lastErr = e instanceof Error ? e.message : String(e)
+      }
+    }
+    return { ok: false, error: lastErr ?? 'Could not open System Settings.' }
+  },
+)
 
 function isSafeHttpsRecordingUrl(url: string): boolean {
   try {

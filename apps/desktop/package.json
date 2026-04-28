@@ -1,5 +1,7 @@
 {
   "name": "screen-record",
+  "description": "Cross-platform screen recording desktop app.",
+  "author": "John Rake",
   "version": "0.1.0",
   "private": true,
   "type": "module",

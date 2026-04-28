@@ -5,7 +5,7 @@ export type ResolveSckRecorderResult =
   | { path: null; error: string }
 
 export type StartRecordingResult =
-  | { ok: true; outputPath: string }
+  | { ok: true; outputPath: string; recordingStartedAtMs: number }
   | { ok: false; error: string }
 
 export type StopRecordingResult = { ok: true } | { ok: false; error: string }
@@ -33,6 +33,10 @@ export type OpenCountdownOverlayResult = { ok: true } | { ok: false; error: stri
 export type ListRecentRecordingsResult = { urls: string[] }
 
 export type OpenExternalUrlResult = { ok: true } | { ok: false; error: string }
+
+export type OpenScreenRecordingSettingsResult =
+  | { ok: true }
+  | { ok: false; error: string }
 
 /** Full-screen countdown overlay window (see `overlay.html` / `src/overlay.tsx`). */
 export type ElectronOverlayAPI = {
@@ -82,42 +86,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.invoke('recording:listCaptureDevices'),
 
   captureDisplayScreenshot: async (displayIdOrIndex: number): Promise<CaptureDisplayScreenshotResult> => {
-    // Prefer Electron's desktopCapturer for previews because it uses the app's
-    // Screen Recording permission (avoids helper-binary permission mismatches).
     try {
-      try {
-        // Some bundlers/shims can produce `undefined` for named imports in preload;
-        // resolve at call-time to ensure we get Electron's real desktopCapturer.
-        // eslint-disable-next-line @typescript-eslint/no-var-requires
-        const { desktopCapturer } = require('electron') as typeof import('electron')
-        if (!desktopCapturer?.getSources) {
-          throw new Error('desktopCapturer is unavailable')
-        }
-
-        const sources = await desktopCapturer.getSources({
-          types: ['screen'],
-          thumbnailSize: { width: 760, height: 760 },
-          fetchWindowIcons: false,
-        })
-        const asId = String(displayIdOrIndex)
-        const match =
-          sources.find((s) => (s.display_id ? String(s.display_id) === asId : false)) ??
-          sources.find((s) => s.id === `screen:${asId}`)
-        if (!match) {
-          return { ok: false, error: 'Could not find the selected display to preview.' }
-        }
-        const png = match.thumbnail.toPNG()
-        return {
-          ok: true,
-          pngBase64: png.toString('base64'),
-          width: match.thumbnail.getSize().width,
-          height: match.thumbnail.getSize().height,
-        }
-      } catch {
-        // Fallback: ask the main process to generate a screenshot via `sck-record`.
-        // This is more reliable in production when preload module shims break `desktopCapturer`.
-        return ipcRenderer.invoke('recording:captureDisplayScreenshot', displayIdOrIndex)
-      }
+      // Standardized preview pipeline: always generate screenshots via the native helper (`sck-record`)
+      // through the main process IPC so previews and recording use the same capture stack.
+      return ipcRenderer.invoke('recording:captureDisplayScreenshot', displayIdOrIndex)
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e)
       return { ok: false, error: msg }
@@ -131,6 +103,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   listRecentRecordings: (): Promise<ListRecentRecordingsResult> =>
     ipcRenderer.invoke('recordings:listRecent'),
+
+  openScreenRecordingSettings: (): Promise<OpenScreenRecordingSettingsResult> =>
+    ipcRenderer.invoke('system:openScreenRecordingSettings'),
 
   openExternalUrl: (url: string): Promise<OpenExternalUrlResult> =>
     ipcRenderer.invoke('shell:openExternal', url),

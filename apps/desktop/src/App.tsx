@@ -123,8 +123,19 @@ export default function App() {
   >(null);
   const [devicesLoading, setDevicesLoading] = useState(false);
   const [devicesError, setDevicesError] = useState<string | null>(null);
+  const [screenReadiness, setScreenReadiness] = useState<
+    | { kind: "unknown" }
+    | { kind: "checking" }
+    | { kind: "ready" }
+    | { kind: "blocked"; message: string }
+  >({ kind: "unknown" });
   const [outputPath, setOutputPath] = useState<string | null>(null);
   const [recording, setRecording] = useState(false);
+  const [recordingStartedAtMs, setRecordingStartedAtMs] = useState<number | null>(
+    null,
+  );
+  const [stopRequested, setStopRequested] = useState(false);
+  const [nowMs, setNowMs] = useState<number>(() => Date.now());
   /** After sck-record exits: upload to GCS until we get `recording:gcs-upload`. */
   const [cloudUploading, setCloudUploading] = useState(false);
   const [shareUrl, setShareUrl] = useState<string | null>(null);
@@ -210,6 +221,36 @@ export default function App() {
     [videoDevices],
   );
 
+  const checkScreenRecordingReadiness = useCallback(
+    async (index: number) => {
+      const api = window.electronAPI;
+      if (!api?.captureDisplayScreenshot) return;
+      const device = videoDevices.find((d) => d.index === index);
+      const selector = device?.displayId ?? index;
+
+      setScreenReadiness({ kind: "checking" });
+
+      const attempt = async () => api.captureDisplayScreenshot(selector);
+      const res1 = await attempt();
+      const res =
+        res1.ok ? res1 : await new Promise<CaptureDisplayScreenshotResult>((r) => {
+          window.setTimeout(() => {
+            void attempt().then(r);
+          }, 250);
+        });
+
+      if (res.ok) {
+        setScreenReadiness({ kind: "ready" });
+      } else {
+        setScreenReadiness({
+          kind: "blocked",
+          message: res.error,
+        });
+      }
+    },
+    [videoDevices],
+  );
+
   const refreshRecentRecordings = useCallback(async () => {
     const api = window.electronAPI;
     if (!api) return;
@@ -233,6 +274,8 @@ export default function App() {
 
     const offEnded = api.onRecordingEnded(({ code, signal }) => {
       setRecording(false);
+      setRecordingStartedAtMs(null);
+      setStopRequested(false);
       setCloudUploading(true);
       setStatus(`Ended (code=${code}, signal=${signal ?? "none"}). Uploading…`);
     });
@@ -263,12 +306,31 @@ export default function App() {
   }, [refreshDevices, refreshRecentRecordings]);
 
   useEffect(() => {
+    if (!recording || recordingStartedAtMs == null) return;
+    setNowMs(Date.now());
+    const id = window.setInterval(() => {
+      setNowMs(Date.now());
+    }, 250);
+    return () => {
+      window.clearInterval(id);
+    };
+  }, [recording, recordingStartedAtMs]);
+
+  useEffect(() => {
     if (!window.electronAPI) return;
     if (videoIndex == null) return;
     if (devicesLoading) return;
     if (devicesError != null) return;
     void refreshDisplayPreview(videoIndex);
   }, [devicesError, devicesLoading, refreshDisplayPreview, videoIndex]);
+
+  useEffect(() => {
+    if (!window.electronAPI) return;
+    if (videoIndex == null) return;
+    if (devicesLoading) return;
+    if (devicesError != null) return;
+    void checkScreenRecordingReadiness(videoIndex);
+  }, [checkScreenRecordingReadiness, devicesError, devicesLoading, videoIndex]);
 
   function resolutionFromDeviceName(name: string): string | null {
     const m = /(\d{3,5})\s*[x×]\s*(\d{3,5})/.exec(name);
@@ -277,6 +339,17 @@ export default function App() {
     const h = Number.parseInt(m[2], 10);
     if (!Number.isFinite(w) || !Number.isFinite(h)) return null;
     return `${w}×${h}`;
+  }
+
+  function formatElapsed(ms: number): string {
+    const totalSec = Math.max(0, Math.floor(ms / 1000));
+    const h = Math.floor(totalSec / 3600);
+    const m = Math.floor((totalSec % 3600) / 60);
+    const s = totalSec % 60;
+    if (h > 0) {
+      return `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+    }
+    return `${m}:${String(s).padStart(2, "0")}`;
   }
 
   function handleVideoChange(index: number) {
@@ -317,6 +390,17 @@ export default function App() {
       setStatus("Choose video and audio devices in the app first.");
       return;
     }
+    if (screenReadiness.kind !== "ready") {
+      setStatus(
+        screenReadiness.kind === "blocked"
+          ? "Screen Recording permission is not ready yet. Open System Settings → Privacy & Security → Screen Recording, enable Screen Record, then click Recheck."
+          : "Checking Screen Recording permission…",
+      );
+      if (videoIndex != null) {
+        void checkScreenRecordingReadiness(videoIndex);
+      }
+      return;
+    }
 
     startRecordingSequenceRef.current = true;
     let minRes: { ok: true } | { ok: false; error: string } = { ok: true };
@@ -355,6 +439,8 @@ export default function App() {
       const res = await api.startRecording({ captureInput: input });
       if (res.ok) {
         setRecording(true);
+        setRecordingStartedAtMs(res.recordingStartedAtMs);
+        setStopRequested(false);
         setOutputPath(res.outputPath);
         setShareUrl(null);
         setShareError(null);
@@ -371,9 +457,11 @@ export default function App() {
   }, [
     audioDevices.length,
     audioIndex,
+    checkScreenRecordingReadiness,
     devicesError,
     devicesLoading,
     recording,
+    screenReadiness.kind,
     videoDevices.length,
     videoIndex,
   ]);
@@ -394,6 +482,7 @@ export default function App() {
     if (!api) return;
     const res = await api.stopRecording();
     if (res.ok) {
+      setStopRequested(true);
       setStatus("Stop sent (SIGINT); wait for the recorder to finalize…");
     } else {
       setStatus(res.error);
@@ -434,6 +523,7 @@ export default function App() {
     countdown === null &&
     !devicesLoading &&
     devicesError == null &&
+    screenReadiness.kind === "ready" &&
     videoIndex != null &&
     audioIndex != null &&
     videoDevices.length > 0 &&
@@ -448,10 +538,89 @@ export default function App() {
     status,
   });
 
+  const stripPhase:
+    | "idle"
+    | "countdown"
+    | "recording"
+    | "stopping"
+    | "uploading"
+    | "uploaded"
+    | "error" = (() => {
+    if (!hasBridge) return "idle";
+    if (devicesError != null) return "error";
+    if (recording && stopRequested) return "stopping";
+    if (recording) return "recording";
+    if (countdown !== null) return "countdown";
+    if (cloudUploading) return "uploading";
+    if (shareUrl) return "uploaded";
+    if (shareError) return "error";
+    return "idle";
+  })();
+
+  const stripToneClass =
+    stripPhase === "recording" || stripPhase === "stopping"
+      ? "recording-strip recording-strip--recording"
+      : stripPhase === "uploading" || stripPhase === "countdown"
+        ? "recording-strip recording-strip--busy"
+        : stripPhase === "uploaded"
+          ? "recording-strip recording-strip--success"
+          : stripPhase === "error"
+            ? "recording-strip recording-strip--error"
+            : "recording-strip";
+
+  const stripTitle = (() => {
+    switch (stripPhase) {
+      case "recording":
+        return "Recording";
+      case "stopping":
+        return "Stopping…";
+      case "uploading":
+        return "Uploading…";
+      case "countdown":
+        return `Starting in ${countdown ?? 0}…`;
+      case "uploaded":
+        return "Uploaded";
+      case "error":
+        return "Needs attention";
+      case "idle":
+      default:
+        return "Ready";
+    }
+  })();
+
+  const stripDetail = (() => {
+    if (stripPhase === "recording" || stripPhase === "stopping") {
+      if (recordingStartedAtMs == null) return null;
+      return formatElapsed(nowMs - recordingStartedAtMs);
+    }
+    return null;
+  })();
+
   return (
     <>
       <div className="app">
         <div className="app-container">
+          <div className={stripToneClass} role="status" aria-live="polite">
+            <div className="recording-strip-left">
+              <span className="recording-strip-title">{stripTitle}</span>
+              {stripDetail ? (
+                <span className="recording-strip-detail">{stripDetail}</span>
+              ) : null}
+            </div>
+            <div className="recording-strip-right">
+              {stripPhase === "recording" || stripPhase === "stopping" ? (
+                <button
+                  type="button"
+                  className="btn btn-danger btn-compact"
+                  onClick={() => void handleStop()}
+                  disabled={!hasBridge || !recording || stopRequested}
+                >
+                  Stop
+                </button>
+              ) : null}
+            </div>
+          </div>
+
           <header className="app-header">
             <div className="app-brand">
               <span className="app-mark" aria-hidden />
@@ -494,6 +663,76 @@ export default function App() {
               </button>
             </div>
             <div className="app-card-body">
+              {hasBridge && !devicesLoading && devicesError == null ? (
+                <div
+                  className={
+                    screenReadiness.kind === "ready"
+                      ? "readiness readiness--ready"
+                      : screenReadiness.kind === "checking"
+                        ? "readiness readiness--checking"
+                        : screenReadiness.kind === "blocked"
+                          ? "readiness readiness--blocked"
+                          : "readiness"
+                  }
+                  role="status"
+                  aria-live="polite"
+                >
+                  <div className="readiness-main">
+                    <div className="readiness-title">Screen Recording</div>
+                    <div className="readiness-sub">
+                      {screenReadiness.kind === "ready"
+                        ? "Ready"
+                        : screenReadiness.kind === "checking"
+                          ? "Checking…"
+                          : screenReadiness.kind === "blocked"
+                            ? "Permission required"
+                            : "Not checked yet"}
+                    </div>
+                  </div>
+
+                  {screenReadiness.kind === "blocked" ? (
+                    <p className="readiness-detail">
+                      Grant permission in System Settings → Privacy &amp;
+                      Security → Screen Recording, then restart the app if macOS
+                      asks you to.
+                      <span className="readiness-detail-muted">
+                        {" "}
+                        Error: {screenReadiness.message}
+                      </span>
+                    </p>
+                  ) : null}
+
+                  <div className="readiness-actions">
+                    <button
+                      type="button"
+                      className="btn btn-outline btn-compact"
+                      onClick={() => void window.electronAPI?.openScreenRecordingSettings?.()}
+                      disabled={uiLockedForCountdown || recording}
+                    >
+                      Open System Settings
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-ghost btn-compact"
+                      onClick={() => {
+                        if (videoIndex != null) {
+                          void checkScreenRecordingReadiness(videoIndex);
+                          void refreshDisplayPreview(videoIndex);
+                        }
+                      }}
+                      disabled={
+                        uiLockedForCountdown ||
+                        recording ||
+                        devicesLoading ||
+                        videoIndex == null ||
+                        screenReadiness.kind === "checking"
+                      }
+                    >
+                      Recheck
+                    </button>
+                  </div>
+                </div>
+              ) : null}
               {devicesLoading ? <p className="hint">Loading devices…</p> : null}
               {devicesError ? (
                 <p className="hint warn">{devicesError}</p>
@@ -635,14 +874,6 @@ export default function App() {
               disabled={!canRecord}
             >
               Start recording
-            </button>
-            <button
-              type="button"
-              className="btn btn-danger"
-              onClick={() => void handleStop()}
-              disabled={!hasBridge || !recording}
-            >
-              Stop
             </button>
             {hasBridge ? (
               <p className="app-actions-hint">
