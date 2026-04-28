@@ -219,12 +219,13 @@ body {
 .screen-card {
   text-align: left;
   width: 100%;
-  padding: 0.7rem 0.75rem;
   border-radius: var(--radius-md);
   border: 1px solid var(--border-strong);
   background: var(--surface-2);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
   cursor: pointer;
+  padding: 0;
+  overflow: hidden;
   transition:
     border-color 0.15s ease,
     background 0.15s ease,
@@ -252,15 +253,40 @@ body {
 
 .screen-card--selected {
   border-color: rgba(138, 180, 248, 0.55);
-  background: linear-gradient(
-      180deg,
-      rgba(138, 180, 248, 0.12),
-      rgba(138, 180, 248, 0.06)
-    ),
-    var(--surface-2);
+  background: var(--surface-2);
   box-shadow:
     0 0 0 1px rgba(138, 180, 248, 0.18),
     inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+
+.screen-card-screen {
+  display: block;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  background: radial-gradient(
+      110% 85% at 50% 15%,
+      rgba(138, 180, 248, 0.16),
+      transparent 60%
+    ),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.04), transparent 55%),
+    #0b0d11;
+  border-bottom: 1px solid var(--border);
+}
+
+.screen-card--selected .screen-card-screen {
+  background: radial-gradient(
+      110% 85% at 50% 15%,
+      rgba(138, 180, 248, 0.22),
+      transparent 60%
+    ),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.05), transparent 55%),
+    #0b0d11;
+}
+
+.screen-card-text {
+  display: block;
+  padding: 0.65rem 0.75rem 0.7rem;
+  text-align: center;
 }
 
 .screen-card-title {

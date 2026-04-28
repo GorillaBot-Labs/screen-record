@@ -276,6 +276,15 @@ export default function App() {
     void refreshDisplayPreview(videoIndex);
   }, [devicesError, devicesLoading, refreshDisplayPreview, videoIndex]);
 
+  function resolutionFromDeviceName(name: string): string | null {
+    const m = /(\d{3,5})\s*[x×]\s*(\d{3,5})/.exec(name);
+    if (!m) return null;
+    const w = Number.parseInt(m[1], 10);
+    const h = Number.parseInt(m[2], 10);
+    if (!Number.isFinite(w) || !Number.isFinite(h)) return null;
+    return `${w}×${h}`;
+  }
+
   function handleVideoChange(index: number) {
     setVideoIndex(index);
     persistIndex(VIDEO_INDEX_STORAGE_KEY, index);
@@ -515,6 +524,7 @@ export default function App() {
                           recording ||
                           uiLockedForCountdown ||
                           videoDevices.length === 0;
+                        const resolution = resolutionFromDeviceName(d.name);
                         return (
                           <button
                             key={d.index}
@@ -529,9 +539,13 @@ export default function App() {
                             role="radio"
                             aria-checked={selected}
                           >
-                            <span className="screen-card-title">{d.name}</span>
-                            <span className="screen-card-meta">
-                              Index {d.index}
+                            <span className="screen-card-screen" aria-hidden />
+                            <span className="screen-card-text">
+                              <span className="screen-card-title">{d.name}</span>
+                              <span className="screen-card-meta">
+                                {resolution ? `${resolution} · ` : null}Index{" "}
+                                {d.index}
+                              </span>
                             </span>
                           </button>
                         );
@@ -540,7 +554,35 @@ export default function App() {
 
                     {hasBridge && videoIndex != null ? (
                       <div className="display-preview" aria-live="polite">
-                        <div className="display-preview-header">
+                        <div className="display-preview-screen">
+                          {displayPreview?.kind === "loading" &&
+                          displayPreview.index === videoIndex ? (
+                            <p className="hint hint-flush display-preview-center">
+                              Loading preview…
+                            </p>
+                          ) : null}
+                          {displayPreview?.kind === "error" &&
+                          displayPreview.index === videoIndex ? (
+                            <p className="hint warn hint-flush display-preview-center">
+                              {displayPreview.message}
+                            </p>
+                          ) : null}
+                          {displayPreview?.kind === "ready" &&
+                          displayPreview.index === videoIndex ? (
+                            <img
+                              className="display-preview-image"
+                              src={displayPreview.dataUrl}
+                              alt="Screenshot of the selected display"
+                            />
+                          ) : null}
+                          {!displayPreview ? (
+                            <p className="hint hint-flush display-preview-center">
+                              Pick a display to see a preview.
+                            </p>
+                          ) : null}
+                        </div>
+
+                        <div className="display-preview-actions">
                           <span className="display-preview-label">
                             Selected display preview
                           </span>
@@ -548,36 +590,13 @@ export default function App() {
                             type="button"
                             className="btn btn-ghost btn-compact"
                             onClick={() => void refreshDisplayPreview(videoIndex)}
-                            disabled={recording || uiLockedForCountdown || devicesLoading}
+                            disabled={
+                              recording || uiLockedForCountdown || devicesLoading
+                            }
                           >
                             Refresh preview
                           </button>
                         </div>
-                        {displayPreview?.kind === "loading" &&
-                        displayPreview.index === videoIndex ? (
-                          <p className="hint hint-flush">Loading preview…</p>
-                        ) : null}
-                        {displayPreview?.kind === "error" &&
-                        displayPreview.index === videoIndex ? (
-                          <p className="hint warn hint-flush">
-                            {displayPreview.message}
-                          </p>
-                        ) : null}
-                        {displayPreview?.kind === "ready" &&
-                        displayPreview.index === videoIndex ? (
-                          <img
-                            className="display-preview-image"
-                            src={displayPreview.dataUrl}
-                            alt="Screenshot of the selected display"
-                            width={displayPreview.width}
-                            height={displayPreview.height}
-                          />
-                        ) : null}
-                        {!displayPreview ? (
-                          <p className="hint hint-flush">
-                            Pick a display to see a preview.
-                          </p>
-                        ) : null}
                       </div>
                     ) : null}
                   </div>
