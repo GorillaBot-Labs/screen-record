@@ -30,6 +30,10 @@
   --color-danger-soft: var(--danger-soft);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
+  --z-index-sticky: 30;
+  --z-index-drawer: 40;
+  --z-index-modal: 50;
+  --z-index-toast: 60;
 }
 
 body {
@@ -59,5 +63,25 @@ button:not(:disabled),
   }
   to {
     transform: translateX(0);
+  }
+}
+
+@keyframes modal-backdrop-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes modal-panel-in {
+  from {
+    opacity: 0;
+    transform: scale(0.97) translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
   }
 }

@@ -168,7 +168,7 @@ export function MobileNav({
 
   return (
     <>
-      <header className="sticky top-0 z-30 flex h-14 shrink-0 items-center gap-3 border-b border-border bg-background/95 px-4 backdrop-blur-sm supports-backdrop-filter:bg-background/80 md:hidden">
+      <header className="sticky top-0 z-sticky flex h-14 shrink-0 items-center gap-3 border-b border-border bg-background/95 px-4 backdrop-blur-sm supports-backdrop-filter:bg-background/80 md:hidden">
         <button
           type="button"
           onClick={onOpen}
@@ -191,7 +191,7 @@ export function MobileNav({
       </header>
 
       {open ? (
-        <div className="fixed inset-0 z-50 md:hidden" role="presentation">
+        <div className="fixed inset-0 z-drawer md:hidden" role="presentation">
           <button
             type="button"
             className="absolute inset-0 bg-zinc-950/40 transition-opacity"

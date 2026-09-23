@@ -1,5 +1,10 @@
 "use client";
 
+import {
+  Modal,
+  modalButtonPrimary,
+  modalButtonSecondary,
+} from "@/app/components/Modal";
 import { buildEmbedHtml } from "@/lib/share-links";
 import { Check, Code, Copy, Download, ExternalLink } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
@@ -93,47 +98,32 @@ export function RecordingShareActions({
         </a>
       </div>
 
-      {embedOpen ? (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-zinc-950/40 p-4"
-          role="presentation"
-          onClick={() => setEmbedOpen(false)}
-        >
-          <div
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="embed-dialog-title"
-            className="w-full max-w-lg rounded-xl border border-border bg-background p-5 shadow-xl"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <h2 id="embed-dialog-title" className="text-base font-semibold text-foreground">
-              Embed this recording
-            </h2>
-            <p className="mt-1 text-sm text-muted">
-              Paste this snippet into Notion, docs, or your site.
-            </p>
-            <pre className="mt-4 overflow-x-auto rounded-lg bg-surface p-3 text-xs text-foreground">
-              {embedHtml}
-            </pre>
-            <div className="mt-4 flex justify-end gap-2">
-              <button
-                type="button"
-                onClick={() => setEmbedOpen(false)}
-                className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-foreground hover:bg-surface"
-              >
-                Close
-              </button>
-              <button
-                type="button"
-                onClick={() => void copyEmbed()}
-                className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white hover:bg-accent-hover"
-              >
-                {copied === "embed" ? "Copied" : "Copy embed code"}
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
+      <Modal
+        open={embedOpen}
+        onClose={() => setEmbedOpen(false)}
+        title="Embed this recording"
+        description="Paste this snippet into Notion, docs, or your site."
+        size="md"
+        showClose
+        footer={
+          <>
+            <button
+              type="button"
+              onClick={() => setEmbedOpen(false)}
+              className={modalButtonSecondary}
+            >
+              Close
+            </button>
+            <button type="button" onClick={() => void copyEmbed()} className={modalButtonPrimary}>
+              {copied === "embed" ? "Copied" : "Copy embed code"}
+            </button>
+          </>
+        }
+      >
+        <pre className="overflow-x-auto rounded-lg bg-surface p-3 text-xs text-foreground">
+          {embedHtml}
+        </pre>
+      </Modal>
     </>
   );
 }
