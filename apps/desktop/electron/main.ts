@@ -3,6 +3,7 @@ import { homedir, tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process'
+import dotenv from 'dotenv'
 import {
   app,
   BrowserWindow,
@@ -23,6 +24,26 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
 const appRoot = path.join(__dirname, '..')
 process.env.APP_ROOT = appRoot
+
+/**
+ * Load desktop env vars without requiring `export ...` in the shell.
+ *
+ * Precedence (last wins):
+ * - `apps/desktop/.env` (dev convenience)
+ * - `~/.screen-record/.env` (works for dev *and* packaged macOS app)
+ */
+function loadDesktopEnv(): void {
+  const candidates = [
+    path.join(appRoot, '.env'),
+    path.join(homedir(), '.screen-record', '.env'),
+  ]
+  for (const p of candidates) {
+    if (!existsSync(p)) continue
+    dotenv.config({ path: p, override: true })
+  }
+}
+
+loadDesktopEnv()
 
 // Default bucket if unset (override with `GCS_BUCKET` for another bucket).
 if (!process.env.GCS_BUCKET?.trim()) {
@@ -275,6 +296,25 @@ function notifyShareLinkCopied(): void {
     title: 'Recording ready',
     body: 'Your share link was copied to the clipboard.',
   }).show()
+}
+
+/** Tell the local web app to upsert the Mongo row; secret must match web `DESKTOP_INGEST_SECRET`. */
+async function ingestRecordingToWeb(gcsObjectName: string, publicUrl: string): Promise<string | undefined> {
+  const base = process.env.WEB_APP_BASE_URL?.trim()?.replace(/\/+$/, '')
+  const secret = process.env.DESKTOP_INGEST_SECRET?.trim()
+  if (!base || !secret) return undefined
+  try {
+    const res = await fetch(`${base}/api/recordings/ingest`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-desktop-ingest-secret': secret },
+      body: JSON.stringify({ gcsObjectName, publicUrl }),
+    })
+    if (!res.ok) return undefined
+    const j = (await res.json()) as { ok?: unknown; detailUrl?: unknown }
+    return typeof j.detailUrl === 'string' && j.detailUrl ? j.detailUrl : undefined
+  } catch {
+    return undefined
+  }
 }
 
 function trayIconImage(): Electron.NativeImage {
@@ -746,10 +786,22 @@ ipcMain.handle(
         const result = await uploadRecordingToGcs(outputPath)
         if (sender.isDestroyed()) return
         let localFileDeleted = false
+        let detailUrl: string | undefined
         if (result.ok) {
-          recordSuccessfulUploadUrl(result.url)
-          clipboard.writeText(result.url)
+          const gcsUrl = result.url
+          detailUrl = await ingestRecordingToWeb(result.objectName, gcsUrl)
+
+          const shareUrl = detailUrl ?? gcsUrl
+          recordSuccessfulUploadUrl(shareUrl)
+          clipboard.writeText(shareUrl)
           notifyShareLinkCopied()
+          if (detailUrl) {
+            try {
+              await shell.openExternal(detailUrl)
+            } catch {
+              /* ignore */
+            }
+          }
           try {
             unlinkSync(outputPath)
             localFileDeleted = true
@@ -761,7 +813,13 @@ ipcMain.handle(
           ok: result.ok,
           outputPath,
           ...(result.ok
-            ? { url: result.url, ...(localFileDeleted ? { localFileDeleted: true as const } : {}) }
+            ? {
+                url: (detailUrl ?? result.url) as string,
+                gcsUrl: result.url,
+                gcsObjectName: result.objectName,
+                ...(detailUrl ? { detailUrl } : {}),
+                ...(localFileDeleted ? { localFileDeleted: true as const } : {}),
+              }
             : { error: result.error }),
         })
       })()

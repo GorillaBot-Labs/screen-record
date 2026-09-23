@@ -286,7 +286,14 @@ export default function App() {
         kind: p.ok ? "upload.ok" : "upload.error",
         message: p.ok ? undefined : p.error,
         data: p.ok
-          ? { url: p.url, outputPath: p.outputPath, localFileDeleted: p.localFileDeleted }
+          ? {
+              url: p.url,
+              gcsUrl: p.gcsUrl,
+              gcsObjectName: p.gcsObjectName,
+              detailUrl: p.detailUrl,
+              outputPath: p.outputPath,
+              localFileDeleted: p.localFileDeleted,
+            }
           : { outputPath: p.outputPath },
       });
       setCloudUploading(false);

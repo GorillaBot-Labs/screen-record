@@ -23,7 +23,10 @@ const GCS_OBJECT_PREFIX = 'recordings'
  */
 export async function uploadRecordingToGcs(
   localPath: string,
-): Promise<{ ok: true; url: string } | { ok: false; error: string }> {
+): Promise<
+  | { ok: true; url: string; bucketName: string; objectName: string }
+  | { ok: false; error: string }
+> {
   const bucketName = process.env.GCS_BUCKET?.trim()
   if (!bucketName) {
     return {
@@ -50,7 +53,7 @@ export async function uploadRecordingToGcs(
     const file = bucket.file(objectName)
     const url = file.publicUrl()
 
-    return { ok: true, url }
+    return { ok: true, url, bucketName, objectName }
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e)
     return { ok: false, error: msg }

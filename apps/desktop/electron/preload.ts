@@ -19,7 +19,19 @@ export type RevealInFinderResult = { ok: true } | { ok: false; error: string }
 export type RecordingEndedPayload = { code: number | null; signal: NodeJS.Signals | null; cancelled?: boolean }
 
 export type RecordingGcsUploadPayload =
-  | { ok: true; url: string; outputPath: string; localFileDeleted?: boolean }
+  | {
+      ok: true
+      /** Share URL (prefer this over `gcsUrl` when present). */
+      url: string
+      /** Raw GCS public URL (storage.googleapis.com). */
+      gcsUrl: string
+      /** `recordings/<filename>.mp4` */
+      gcsObjectName: string
+      /** Optional web app detail page URL. */
+      detailUrl?: string
+      outputPath: string
+      localFileDeleted?: boolean
+    }
   | { ok: false; error: string; outputPath: string }
 
 export type CaptureDevice = { index: number; name: string; displayId?: number }

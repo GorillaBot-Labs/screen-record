@@ -33,6 +33,18 @@ This project is intended to run **locally** via `npm run dev` (or `npm run build
 
 Uploads go to the GCS bucket **`screen-record`** by default (set `GCS_BUCKET` if you need a different bucket). Credentials: `~/.screen-record/gcp-credentials.json` (see `electron/gcs-upload.ts`).
 
+To copy/open the **recording page** on your web app after upload, set the **same** secret in both apps and point the desktop at your dev server. The desktop app loads env vars automatically from:
+
+- `~/.screen-record/.env` (works for both packaged app + local dev)
+- `apps/desktop/.env` (dev convenience)
+
+Start by copying `apps/desktop/.env.example` to one of those locations.
+
+- Web: `DESKTOP_INGEST_SECRET` in `apps/web/.env`
+- Desktop: `WEB_APP_BASE_URL=http://localhost:3000` and the same `DESKTOP_INGEST_SECRET` in the shell where you run Electron
+
+If either is missing, the desktop still uploads to GCS and copies the raw file URL.
+
 ## Recording troubleshooting (sck-record)
 
 Stderr from `sck-record` is forwarded into the in-app **Recorder log**.

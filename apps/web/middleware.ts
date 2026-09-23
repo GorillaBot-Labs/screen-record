@@ -40,6 +40,7 @@ export async function middleware(request: NextRequest) {
 export const config = {
   matcher: [
     // Exclude all `/_next/*` (static, image, webpack-hmr, etc.) so dev and assets are not gated.
-    "/((?!_next/|favicon.ico|login|api/gallery-auth/login).*)",
+    // Exclude the public recording detail page and desktop ingest API.
+    "/((?!_next/|favicon.ico|login|r/|api/gallery-auth/login|api/recordings/ingest).*)",
   ],
 };
