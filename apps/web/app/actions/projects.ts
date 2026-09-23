@@ -5,9 +5,11 @@ import {
   createFolderInCatalog,
   createProjectInCatalog,
   moveRecordingInCatalog,
-  type FolderMutationResult,
-  type MoveRecordingResult,
-  type ProjectMutationResult,
+} from "@/lib/projects";
+import type {
+  FolderMutationResult,
+  MoveRecordingResult,
+  ProjectMutationResult,
 } from "@/lib/projects";
 
 export async function createProject(name: string): Promise<ProjectMutationResult> {

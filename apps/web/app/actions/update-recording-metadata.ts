@@ -1,10 +1,8 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import {
-  updateRecordingMetadataInCatalog,
-  type UpdateRecordingMetadataResult,
-} from "@/lib/recording-catalog";
+import { updateRecordingMetadataInCatalog } from "@/lib/recording-catalog";
+import type { UpdateRecordingMetadataResult } from "@/lib/recording-catalog";
 
 export type { UpdateRecordingMetadataResult };
 

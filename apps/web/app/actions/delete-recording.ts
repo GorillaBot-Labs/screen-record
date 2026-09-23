@@ -1,10 +1,8 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import {
-  deleteRecordingById,
-  type DeleteRecordingResult,
-} from "@/lib/recording-delete";
+import { deleteRecordingById } from "@/lib/recording-delete";
+import type { DeleteRecordingResult } from "@/lib/recording-delete";
 
 export type { DeleteRecordingResult };
 

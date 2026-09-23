@@ -1,10 +1,8 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import {
-  deleteRecordingsByIds,
-  type BulkDeleteResult,
-} from "@/lib/recording-delete";
+import { deleteRecordingsByIds } from "@/lib/recording-delete";
+import type { BulkDeleteResult } from "@/lib/recording-delete";
 
 export type { BulkDeleteResult };
 
