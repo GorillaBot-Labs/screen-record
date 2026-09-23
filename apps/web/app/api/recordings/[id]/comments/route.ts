@@ -1,4 +1,7 @@
+import { appBaseUrl } from "@/lib/app-url";
+import { commentNotificationFromRecording } from "@/lib/emails/comment-notification";
 import { prisma } from "@/lib/prisma";
+import { sendCommentNotification } from "@/lib/send-comment-notification";
 import { NextResponse } from "next/server";
 
 const MAX_BODY_LENGTH = 2000;
@@ -35,7 +38,7 @@ export async function POST(request: Request, context: RouteContext) {
 
   const recording = await prisma.recording.findUnique({
     where: { id },
-    select: { id: true },
+    select: { id: true, title: true, gcsObjectName: true, publicUrl: true },
   });
   if (!recording) {
     return NextResponse.json({ ok: false, error: "Recording not found" }, { status: 404 });
@@ -82,6 +85,14 @@ export async function POST(request: Request, context: RouteContext) {
       timestampSeconds: true,
       createdAt: true,
     },
+  });
+
+  void sendCommentNotification(
+    commentNotificationFromRecording(recording, comment, appBaseUrl()),
+  ).then((result) => {
+    if (!result.ok) {
+      console.error("Comment notification email failed:", result.error);
+    }
   });
 
   return NextResponse.json({ ok: true, comment }, { status: 201 });

@@ -1,7 +1,7 @@
 "use client";
 
 import { formatVideoTimestamp } from "@/lib/video-time";
-import { MessageSquare, Pause, Send } from "lucide-react";
+import { MessageSquare, Send } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
@@ -16,6 +16,7 @@ type RecordingViewerProps = {
   recordingId: string;
   publicUrl: string;
   initialComments: RecordingCommentItem[];
+  startAtSeconds?: number;
 };
 
 function asDate(value: string): Date {
@@ -31,48 +32,39 @@ export function RecordingViewer({
   recordingId,
   publicUrl,
   initialComments,
+  startAtSeconds,
 }: RecordingViewerProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const [comments, setComments] = useState(initialComments);
   const [draft, setDraft] = useState("");
   const [submitting, setSubmitting] = useState(false);
-  const [videoPaused, setVideoPaused] = useState(true);
-  const [anchorSeconds, setAnchorSeconds] = useState(0);
-  const [formFocused, setFormFocused] = useState(false);
-
-  const syncAnchor = useCallback(() => {
-    const video = videoRef.current;
-    if (video?.paused) {
-      setAnchorSeconds(video.currentTime);
-    }
-  }, []);
+  const [playbackSeconds, setPlaybackSeconds] = useState(0);
 
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
 
-    const onPause = () => {
-      setVideoPaused(true);
-      setAnchorSeconds(video.currentTime);
-    };
-    const onPlay = () => setVideoPaused(false);
-    const onSeeked = () => {
-      if (video.paused && (formFocused || document.activeElement === textareaRef.current)) {
-        setAnchorSeconds(video.currentTime);
+    const syncTime = () => setPlaybackSeconds(video.currentTime);
+
+    const onLoadedMetadata = () => {
+      if (startAtSeconds != null && startAtSeconds >= 0) {
+        video.currentTime = startAtSeconds;
       }
+      syncTime();
     };
 
-    video.addEventListener("pause", onPause);
-    video.addEventListener("play", onPlay);
-    video.addEventListener("seeked", onSeeked);
+    video.addEventListener("timeupdate", syncTime);
+    video.addEventListener("seeked", syncTime);
+    video.addEventListener("loadedmetadata", onLoadedMetadata);
+    if (video.readyState >= 1) onLoadedMetadata();
+
     return () => {
-      video.removeEventListener("pause", onPause);
-      video.removeEventListener("play", onPlay);
-      video.removeEventListener("seeked", onSeeked);
+      video.removeEventListener("timeupdate", syncTime);
+      video.removeEventListener("seeked", syncTime);
+      video.removeEventListener("loadedmetadata", onLoadedMetadata);
     };
-  }, [formFocused]);
+  }, [startAtSeconds]);
 
   const seekTo = useCallback((seconds: number) => {
     const video = videoRef.current;
@@ -88,12 +80,8 @@ export function RecordingViewer({
     if (!text) return;
 
     const video = videoRef.current;
-    if (!video?.paused) {
-      toast.error("Pause the video to anchor your note to that moment");
-      return;
-    }
+    const timestampSeconds = video?.currentTime ?? 0;
 
-    const timestampSeconds = video.currentTime;
     setSubmitting(true);
     try {
       const res = await fetch(`/api/recordings/${recordingId}/comments`, {
@@ -145,15 +133,6 @@ export function RecordingViewer({
     }
   }, [draft, recordingId]);
 
-  const handleFormFocus = useCallback(() => {
-    setFormFocused(true);
-    syncAnchor();
-  }, [syncAnchor]);
-
-  const handleFormBlur = useCallback(() => {
-    setFormFocused(false);
-  }, []);
-
   return (
     <div className="flex min-h-0 flex-1 flex-col xl:flex-row">
       <div className="min-w-0 flex-1 px-6 py-6 md:px-8">
@@ -173,7 +152,7 @@ export function RecordingViewer({
         </section>
 
         <p className="mt-4 text-sm text-muted xl:hidden">
-          Pause the video and add notes in the comments section below.
+          Add notes in the comments section — each one saves at the current playback time.
         </p>
         <p className="mt-4 hidden text-sm text-muted xl:block">
           Anyone with this link can watch and leave anonymous notes.
@@ -191,7 +170,7 @@ export function RecordingViewer({
           <ul className="flex-1 space-y-1 overflow-y-auto p-3">
             {comments.length === 0 ? (
               <li className="px-2 py-8 text-center text-sm text-muted">
-                No notes yet. Pause the video and share a thought at that moment.
+                No notes yet. Add a thought — it will be saved at the current moment in the video.
               </li>
             ) : (
               comments.map((comment) => (
@@ -224,36 +203,21 @@ export function RecordingViewer({
             }}
           >
             <div className="mb-2 flex items-center justify-between gap-2">
-              <span
-                className={`inline-flex items-center gap-1.5 rounded-md px-2 py-1 font-mono text-xs font-medium ${
-                  videoPaused
-                    ? "bg-accent-soft text-accent"
-                    : "bg-surface text-muted"
-                }`}
-              >
-                {videoPaused ? (
-                  formatVideoTimestamp(anchorSeconds)
-                ) : (
-                  <>
-                    <Pause className="h-3 w-3 opacity-70" aria-hidden />
-                    Pause to set time
-                  </>
-                )}
+              <span className="inline-flex items-center gap-1.5 rounded-md bg-accent-soft px-2 py-1 font-mono text-xs font-medium text-accent">
+                {formatVideoTimestamp(playbackSeconds)}
               </span>
+              <span className="text-xs text-muted">Saves at this time</span>
             </div>
             <label htmlFor="comment-body" className="sr-only">
               Comment
             </label>
             <textarea
-              ref={textareaRef}
               id="comment-body"
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
-              onFocus={handleFormFocus}
-              onBlur={handleFormBlur}
               rows={3}
               maxLength={2000}
-              placeholder="Pause the video, then leave a note…"
+              placeholder="Leave a note…"
               disabled={submitting}
               className="w-full resize-none rounded-lg border border-border bg-background px-3 py-2.5 text-sm text-foreground placeholder:text-muted focus:border-accent-muted focus:ring-2 focus:ring-accent-soft disabled:opacity-60"
             />

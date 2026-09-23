@@ -29,12 +29,23 @@ export async function generateMetadata({
   };
 }
 
+function parseStartTime(value: string | undefined): number | undefined {
+  if (!value?.trim()) return undefined;
+  const n = Number(value);
+  if (!Number.isFinite(n) || n < 0) return undefined;
+  return n;
+}
+
 export default async function RecordingDetailPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  searchParams: Promise<{ t?: string }>;
 }) {
   const { id } = await params;
+  const { t } = await searchParams;
+  const startAtSeconds = parseStartTime(t);
 
   const recording = await prisma.recording.findUnique({
     where: { id },
@@ -101,6 +112,7 @@ export default async function RecordingDetailPage({
         recordingId={id}
         publicUrl={recording.publicUrl}
         initialComments={initialComments}
+        startAtSeconds={startAtSeconds}
       />
     </main>
   );
