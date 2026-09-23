@@ -2,14 +2,8 @@
 
 import { revalidatePath } from "next/cache";
 import { updateRecordingTagsInCatalog } from "@/lib/recording-catalog";
-import type { UpdateRecordingTagsResult } from "@/lib/recording-catalog";
 
-export type { UpdateRecordingTagsResult };
-
-export async function updateRecordingTags(
-  recordingId: string,
-  tags: string[],
-): Promise<UpdateRecordingTagsResult> {
+export async function updateRecordingTags(recordingId: string, tags: string[]) {
   const result = await updateRecordingTagsInCatalog(recordingId, tags);
   if (result.ok) {
     revalidatePath("/");

@@ -24,7 +24,6 @@ export default defineConfig({
           include: ["tests/integration/**/*.test.ts"],
           setupFiles: ["tests/integration/setup.ts"],
           globalSetup: ["tests/integration/global-setup.ts"],
-          fileParallelism: false,
         },
       },
     ],

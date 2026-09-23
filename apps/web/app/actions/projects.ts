@@ -6,13 +6,8 @@ import {
   createProjectInCatalog,
   moveRecordingInCatalog,
 } from "@/lib/projects";
-import type {
-  FolderMutationResult,
-  MoveRecordingResult,
-  ProjectMutationResult,
-} from "@/lib/projects";
 
-export async function createProject(name: string): Promise<ProjectMutationResult> {
+export async function createProject(name: string) {
   const result = await createProjectInCatalog(name);
   if (result.ok) revalidatePath("/");
   return result;
@@ -22,7 +17,7 @@ export async function createFolder(input: {
   projectId: string;
   name: string;
   parentFolderId?: string | null;
-}): Promise<FolderMutationResult> {
+}) {
   const result = await createFolderInCatalog(input);
   if (result.ok) revalidatePath("/");
   return result;
@@ -32,7 +27,7 @@ export async function moveRecording(input: {
   recordingId: string;
   projectId: string | null;
   folderId: string | null;
-}): Promise<MoveRecordingResult> {
+}) {
   const result = await moveRecordingInCatalog(input);
   if (result.ok) {
     revalidatePath("/");
