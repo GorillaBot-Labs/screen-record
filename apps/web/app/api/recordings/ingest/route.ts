@@ -32,10 +32,25 @@ export async function POST(request: Request) {
   const filename = gcsObjectName.split("/").pop() ?? gcsObjectName;
   const titleFromFilename = filename.replace(/\.mp4$/i, "") || undefined;
 
+  const durationRaw =
+    typeof body === "object" && body !== null && "durationSeconds" in body
+      ? Number((body as { durationSeconds: unknown }).durationSeconds)
+      : NaN;
+  const durationSeconds =
+    Number.isFinite(durationRaw) && durationRaw > 0 ? durationRaw : undefined;
+
   const recording = await prisma.recording.upsert({
     where: { gcsObjectName },
-    create: { gcsObjectName, publicUrl, title: titleFromFilename },
-    update: { publicUrl },
+    create: {
+      gcsObjectName,
+      publicUrl,
+      title: titleFromFilename,
+      ...(durationSeconds != null ? { durationSeconds } : {}),
+    },
+    update: {
+      publicUrl,
+      ...(durationSeconds != null ? { durationSeconds } : {}),
+    },
     select: { id: true },
   });
 

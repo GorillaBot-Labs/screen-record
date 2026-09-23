@@ -1,5 +1,6 @@
 import { RecordingShareActions } from "@/app/r/[id]/RecordingShareActions";
 import { RecordingViewer } from "@/app/r/[id]/RecordingViewer";
+import { RecordingTags } from "@/app/components/RecordingTags";
 import {
   displayTitle,
   recordingDateLongFormatter,
@@ -55,6 +56,7 @@ export default async function RecordingDetailPage({
       gcsObjectName: true,
       createdAt: true,
       notes: true,
+      tags: true,
       comments: {
         orderBy: [{ timestampSeconds: "asc" }, { createdAt: "asc" }],
         select: {
@@ -103,6 +105,7 @@ export default async function RecordingDetailPage({
                 {recording.notes.trim()}
               </p>
             ) : null}
+            <RecordingTags recordingId={id} tags={recording.tags ?? []} />
           </div>
           <RecordingShareActions shareUrl={shareUrl} publicUrl={recording.publicUrl} />
         </div>

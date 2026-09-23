@@ -8,13 +8,15 @@ datasource db {
 }
 
 model Recording {
-  id            String             @id @default(auto()) @map("_id") @db.ObjectId
-  gcsObjectName String             @unique
-  publicUrl     String
-  createdAt     DateTime           @default(now())
-  title         String?
-  notes         String?
-  comments      RecordingComment[]
+  id              String             @id @default(auto()) @map("_id") @db.ObjectId
+  gcsObjectName   String             @unique
+  publicUrl       String
+  createdAt       DateTime           @default(now())
+  title           String?
+  notes           String?
+  tags            String[]           @default([])
+  durationSeconds Float?
+  comments        RecordingComment[]
 
   @@map("recordings")
 }
