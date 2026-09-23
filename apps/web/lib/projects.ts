@@ -132,6 +132,80 @@ export type ProjectTree = {
   }>;
 };
 
+export type DeleteFolderResult =
+  | { ok: true; projectId: string }
+  | { ok: false; error: string };
+
+export async function deleteFolderInCatalog(folderId: string): Promise<DeleteFolderResult> {
+  if (!folderId?.trim()) return { ok: false, error: "Missing folder id" };
+
+  const folder = await prisma.folder.findUnique({
+    where: { id: folderId },
+    select: { id: true, projectId: true, parentFolderId: true },
+  });
+  if (!folder) return { ok: false, error: "Folder not found" };
+
+  try {
+    await prisma.$transaction([
+      prisma.recording.updateMany({
+        where: { folderId: folder.id },
+        data: { folderId: null },
+      }),
+      prisma.folder.updateMany({
+        where: { parentFolderId: folder.id },
+        data: { parentFolderId: folder.parentFolderId },
+      }),
+      prisma.folder.delete({ where: { id: folder.id } }),
+    ]);
+    return { ok: true, projectId: folder.projectId };
+  } catch {
+    return { ok: false, error: "Could not delete folder" };
+  }
+}
+
+export type DeleteProjectResult = { ok: true } | { ok: false; error: string };
+
+export async function deleteProjectInCatalog(input: {
+  projectId: string;
+  confirmationName: string;
+}): Promise<DeleteProjectResult> {
+  if (!input.projectId?.trim()) return { ok: false, error: "Missing project id" };
+
+  const project = await prisma.project.findUnique({
+    where: { id: input.projectId },
+    select: { id: true, name: true },
+  });
+  if (!project) return { ok: false, error: "Project not found" };
+  if (input.confirmationName !== project.name) {
+    return { ok: false, error: "Project name does not match" };
+  }
+
+  try {
+    await prisma.$transaction(async (tx) => {
+      await tx.recording.updateMany({
+        where: { projectId: project.id },
+        data: { projectId: null, folderId: null },
+      });
+
+      while (true) {
+        const leafFolders = await tx.folder.findMany({
+          where: { projectId: project.id, children: { none: {} } },
+          select: { id: true },
+        });
+        if (leafFolders.length === 0) break;
+        await tx.folder.deleteMany({
+          where: { id: { in: leafFolders.map((item) => item.id) } },
+        });
+      }
+
+      await tx.project.delete({ where: { id: project.id } });
+    });
+    return { ok: true };
+  } catch {
+    return { ok: false, error: "Could not delete project" };
+  }
+}
+
 export async function loadProjectTree(): Promise<ProjectTree[]> {
   const projects = await prisma.project.findMany({
     orderBy: { name: "asc" },

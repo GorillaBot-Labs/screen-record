@@ -1,6 +1,7 @@
 "use client";
 
 import { deleteRecordings } from "@/app/actions/delete-recordings";
+import { moveRecording } from "@/app/actions/projects";
 import { RecordingCard } from "@/app/components/RecordingCard";
 import {
   collectLibraryTags,
@@ -8,12 +9,23 @@ import {
   sortLibraryRecordings,
 } from "@/lib/library-filter";
 import {
-  LIBRARY_SORT_LABELS,
   type LibraryRecording,
   type LibrarySort,
 } from "@/lib/library-types";
 import { EmptyPlaceholder } from "@/app/components/EmptyPlaceholder";
-import { Folder, FolderOpen, Search, SearchX, Trash2, Video } from "lucide-react";
+import { LibraryToolbar } from "@/app/components/LibraryToolbar";
+import {
+  ProjectFolderStrip,
+  type ProjectFolderItem,
+} from "@/app/components/ProjectFolderStrip";
+import {
+  DndContext,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import { Folder, FolderOpen, SearchX, Trash2, Video } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useCallback, useMemo, useState } from "react";
 import { toast } from "sonner";
@@ -22,14 +34,22 @@ type LibraryViewProps = {
   recordings: LibraryRecording[];
   projectId?: string | null;
   folderId?: string | null;
+  folders?: ProjectFolderItem[];
 };
 
 export function LibraryView({
   recordings,
   projectId = null,
   folderId = null,
+  folders = [],
 }: LibraryViewProps) {
   const router = useRouter();
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: { distance: 8 },
+    }),
+  );
+  const [movingRecordingId, setMovingRecordingId] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState<LibrarySort>("newest");
   const [tagFilter, setTagFilter] = useState<string | null>(null);
@@ -111,162 +131,164 @@ export function LibraryView({
     setTagFilter((current) => (current?.toLowerCase() === tag.toLowerCase() ? null : tag));
   }, []);
 
-  if (recordings.length === 0) {
-    if (folderId) {
-      return (
-        <EmptyPlaceholder
-          icon={Folder}
-          title="Empty folder"
-          description="Move recordings here to organize them."
-        />
-      );
-    }
-    if (projectId) {
-      return (
-        <EmptyPlaceholder
-          icon={FolderOpen}
-          title="Nothing here yet"
-          description="Recordings in this project will show up here."
-        />
-      );
-    }
-    return (
-      <EmptyPlaceholder
-        icon={Video}
-        title="No recordings yet"
-        description="Record from the Screen Record app to get started."
-      />
-    );
-  }
+  const handleDragEnd = useCallback(
+    async (event: DragEndEvent) => {
+      const { active, over } = event;
+      if (!over || !projectId) return;
 
-  return (
-    <div className="flex flex-col gap-4">
-      <div className="flex flex-col gap-2.5 rounded-xl border border-border bg-background p-3 md:p-3.5">
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-          <label className="relative min-w-0 flex-1">
-            <Search
-              className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted"
-              aria-hidden
-            />
-            <input
-              type="search"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search by title, filename, date, tags, or notes…"
-              className="w-full rounded-lg border border-border bg-background py-2 pl-10 pr-3 text-sm outline-none focus:border-accent-muted focus:ring-2 focus:ring-accent-soft"
-            />
-          </label>
-          <select
-            value={sort}
-            onChange={(e) => setSort(e.target.value as LibrarySort)}
-            aria-label="Sort recordings"
-            className="rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-accent-muted focus:ring-2 focus:ring-accent-soft sm:w-44"
-          >
-            {(Object.keys(LIBRARY_SORT_LABELS) as LibrarySort[]).map((key) => (
-              <option key={key} value={key}>
-                {LIBRARY_SORT_LABELS[key]}
-              </option>
-            ))}
-          </select>
-        </div>
+      const overData = over.data.current;
+      if (overData?.type !== "folder") return;
 
-        {allTags.length > 0 || hasCommentsOnly ? (
-          <div className="flex flex-wrap items-center gap-1.5 border-t border-border pt-2.5">
-            <button
-              type="button"
-              onClick={() => setTagFilter(null)}
-              className={`rounded-full px-2.5 py-0.5 text-xs font-medium transition-colors ${
-                tagFilter === null
-                  ? "bg-accent-soft text-accent"
-                  : "bg-surface text-muted hover:text-foreground"
-              }`}
-            >
-              All tags
-            </button>
-            {allTags.map((tag) => (
-              <button
-                key={tag}
-                type="button"
-                onClick={() =>
-                  setTagFilter((current) =>
-                    current?.toLowerCase() === tag.toLowerCase() ? null : tag,
-                  )
-                }
-                className={`rounded-full px-2.5 py-0.5 text-xs font-medium transition-colors ${
-                  tagFilter?.toLowerCase() === tag.toLowerCase()
-                    ? "bg-accent-soft text-accent"
-                    : "bg-surface text-muted hover:text-foreground"
-                }`}
-              >
-                {tag}
-              </button>
-            ))}
-            <label className="ml-auto inline-flex items-center gap-1.5 text-xs text-muted">
-              <input
-                type="checkbox"
-                checked={hasCommentsOnly}
-                onChange={(e) => setHasCommentsOnly(e.target.checked)}
-                className="rounded border-border text-accent focus:ring-accent-muted"
-              />
-              Has comments
-            </label>
-          </div>
-        ) : (
-          <label className="inline-flex items-center gap-1.5 border-t border-border pt-2.5 text-xs text-muted">
-            <input
-              type="checkbox"
-              checked={hasCommentsOnly}
-              onChange={(e) => setHasCommentsOnly(e.target.checked)}
-              className="rounded border-border text-accent focus:ring-accent-muted"
-            />
-            Has comments
-          </label>
-        )}
-      </div>
+      const recordingId = String(active.id);
+      const targetFolderId = overData.folderId as string | null;
+      const recording = recordings.find((item) => item.id === recordingId);
+      if (!recording || recording.folderId === targetFolderId) return;
 
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="text-xs text-muted">
-          {visible.length} of {recordings.length} video{recordings.length === 1 ? "" : "s"}
-          {selected.size > 0 ? ` · ${selected.size} selected` : ""}
+      setMovingRecordingId(recordingId);
+      try {
+        const result = await moveRecording({
+          recordingId,
+          projectId,
+          folderId: targetFolderId,
+        });
+        if (!result.ok) {
+          toast.error(result.error);
+          return;
+        }
+        toast.success(targetFolderId ? "Moved to folder" : "Moved to project root");
+        router.refresh();
+      } catch {
+        toast.error("Could not move recording");
+      } finally {
+        setMovingRecordingId(null);
+      }
+    },
+    [projectId, recordings, router],
+  );
+
+  const inProjectContext = Boolean(projectId);
+  const hasFolders = folders.length > 0;
+  const showFolderStrip = inProjectContext && (hasFolders || Boolean(folderId));
+  const canDragRecordings = inProjectContext;
+
+  const hasActiveFilters = Boolean(query.trim() || tagFilter || hasCommentsOnly);
+  const resultLabel =
+    hasActiveFilters || visible.length !== recordings.length
+      ? `${visible.length} of ${recordings.length} video${recordings.length === 1 ? "" : "s"}`
+      : undefined;
+
+  const searchAndFilters = (
+    <LibraryToolbar
+      query={query}
+      onQueryChange={setQuery}
+      sort={sort}
+      onSortChange={setSort}
+      tags={allTags}
+      tagFilter={tagFilter}
+      onTagFilterChange={setTagFilter}
+      hasCommentsOnly={hasCommentsOnly}
+      onHasCommentsOnlyChange={setHasCommentsOnly}
+      resultLabel={resultLabel}
+    />
+  );
+
+  const folderStripSection = showFolderStrip ? (
+    <ProjectFolderStrip
+      projectId={projectId!}
+      folders={folders}
+      activeFolderId={folderId}
+      showProjectRootDrop={Boolean(folderId)}
+    />
+  ) : null;
+
+  const selectionBar =
+    selected.size > 0 ? (
+      <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-accent-muted bg-accent-soft px-3 py-2">
+        <p className="text-sm font-medium text-accent">
+          {selected.size} selected
+          {selectedVisibleCount < selected.size
+            ? ` · ${selected.size - selectedVisibleCount} hidden by filters`
+            : ""}
         </p>
-        <div className="flex flex-wrap items-center gap-1.5">
+        <div className="flex flex-wrap items-center gap-1">
           {visible.length > 0 ? (
             <button
               type="button"
               onClick={selectAllVisible}
-              className="rounded-lg px-3 py-1.5 text-sm font-medium text-muted transition-colors hover:bg-surface hover:text-foreground"
+              className="rounded-md px-2.5 py-1 text-xs font-medium text-accent transition-colors hover:bg-background/60"
             >
-              Select all shown
+              Select all
             </button>
           ) : null}
-          {selected.size > 0 ? (
-            <>
-              <button
-                type="button"
-                onClick={clearSelection}
-                className="rounded-lg px-3 py-1.5 text-sm font-medium text-muted transition-colors hover:bg-surface hover:text-foreground"
-              >
-                Clear
-              </button>
-              <button
-                type="button"
-                onClick={() => void handleBulkDelete()}
-                disabled={bulkDeleting}
-                className="inline-flex items-center gap-1.5 rounded-lg bg-danger px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-red-700 disabled:opacity-50"
-              >
-                <Trash2 className="h-4 w-4" aria-hidden />
-                {bulkDeleting ? "Deleting…" : `Delete ${selected.size}`}
-              </button>
-            </>
-          ) : null}
+          <button
+            type="button"
+            onClick={clearSelection}
+            className="rounded-md px-2.5 py-1 text-xs font-medium text-accent transition-colors hover:bg-background/60"
+          >
+            Clear
+          </button>
+          <button
+            type="button"
+            onClick={() => void handleBulkDelete()}
+            disabled={bulkDeleting}
+            className="inline-flex items-center gap-1 rounded-md bg-danger px-2.5 py-1 text-xs font-medium text-white transition-colors hover:bg-red-700 disabled:opacity-50"
+          >
+            <Trash2 className="h-3.5 w-3.5" aria-hidden />
+            {bulkDeleting ? "Deleting…" : "Delete"}
+          </button>
         </div>
       </div>
+    ) : null;
+
+  const content = (() => {
+  if (!inProjectContext && recordings.length === 0) {
+    return (
+      <div className="flex flex-col gap-3">
+        {searchAndFilters}
+        <EmptyPlaceholder
+          icon={Video}
+          title="No recordings yet"
+          description="Record from the Screen Record app to get started."
+        />
+      </div>
+    );
+  }
+
+  if (inProjectContext && recordings.length === 0 && !hasFolders) {
+    return (
+      <div className="flex flex-col gap-3">
+        {searchAndFilters}
+        {folderStripSection}
+        {selectionBar}
+        <EmptyPlaceholder
+          icon={folderId ? Folder : FolderOpen}
+          title={folderId ? "Empty folder" : "Nothing here yet"}
+          description={
+            folderId
+              ? "Move recordings here to organize them."
+              : "Recordings at the project root will show up here."
+          }
+        />
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-3">
+      {searchAndFilters}
+      {folderStripSection}
+      {selectionBar}
 
       {visible.length === 0 ? (
         <EmptyPlaceholder
-          icon={SearchX}
-          title="No results"
-          description="Try a different search or filter."
+          icon={recordings.length === 0 ? FolderOpen : SearchX}
+          title={recordings.length === 0 ? "No videos here" : "No results"}
+          description={
+            recordings.length === 0
+              ? "Drag videos from another folder or add new recordings."
+              : "Try a different search or filter."
+          }
+          compact={recordings.length === 0 && hasFolders}
         />
       ) : (
         <ul className="grid list-none grid-cols-1 gap-x-4 gap-y-6 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
@@ -277,18 +299,19 @@ export function LibraryView({
                 selected={selected.has(recording.id)}
                 onSelectedChange={toggleSelected}
                 onTagClick={handleTagClick}
+                draggable={canDragRecordings && movingRecordingId !== recording.id}
               />
             </li>
           ))}
         </ul>
       )}
-
-      {selected.size > 0 && selectedVisibleCount < selected.size ? (
-        <p className="text-xs text-muted">
-          {selected.size - selectedVisibleCount} selected item
-          {selected.size - selectedVisibleCount === 1 ? "" : "s"} hidden by current filters.
-        </p>
-      ) : null}
     </div>
+  );
+  })();
+
+  return (
+    <DndContext sensors={sensors} onDragEnd={(event) => void handleDragEnd(event)}>
+      {content}
+    </DndContext>
   );
 }

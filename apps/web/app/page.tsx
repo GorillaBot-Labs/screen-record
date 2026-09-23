@@ -1,5 +1,5 @@
 import { LibraryView } from "@/app/components/LibraryView";
-import { ProjectPageActions } from "@/app/components/ProjectPageActions";
+import { ProjectPageHeader } from "@/app/components/ProjectPageHeader";
 import type { LibraryRecording } from "@/lib/library-types";
 import { loadProjectTree } from "@/lib/projects";
 import { prisma } from "@/lib/prisma";
@@ -13,7 +13,7 @@ async function loadRecordings(filters: { projectId?: string; folderId?: string }
         ...(filters.folderId
           ? { folderId: filters.folderId }
           : filters.projectId
-            ? { projectId: filters.projectId }
+            ? { projectId: filters.projectId, folderId: null }
             : {}),
       },
       orderBy: { createdAt: "desc" },
@@ -69,26 +69,50 @@ export default async function Home({
 
   const activeProject = projectTree.find((item) => item.id === project);
   const activeFolder = activeProject?.folders.find((item) => item.id === folder);
+
+  let visibleFolders: Array<{ id: string; name: string; recordingCount: number }> = [];
+  if (activeProject) {
+    const counts = await prisma.recording.groupBy({
+      by: ["folderId"],
+      where: { projectId: activeProject.id, folderId: { not: null } },
+      _count: { _all: true },
+    });
+    const countByFolder = new Map(
+      counts
+        .filter((item) => item.folderId)
+        .map((item) => [item.folderId as string, item._count._all]),
+    );
+    visibleFolders = activeProject.folders
+      .filter((item) => (folder ? item.parentFolderId === folder : !item.parentFolderId))
+      .map((item) => ({
+        id: item.id,
+        name: item.name,
+        recordingCount: countByFolder.get(item.id) ?? 0,
+      }));
+  }
+
   const heading = activeFolder?.name ?? activeProject?.name ?? "Videos";
-  const subtitle = activeFolder
-    ? `Recordings in ${activeProject?.name ?? "project"} / ${activeFolder.name}`
-    : activeProject
-      ? `All recordings in ${activeProject.name}`
-      : "Search, tag, sort, and manage your screen recordings.";
+  const subtitle = activeProject
+    ? null
+    : "Search, tag, sort, and manage your screen recordings.";
 
   return (
     <main className="flex min-h-full flex-1 flex-col bg-background px-4 py-4 md:px-6 md:py-5">
-      <header className="mb-4 flex items-start justify-between gap-4">
-        <div className="min-w-0">
+      {activeProject ? (
+        <ProjectPageHeader
+          projectId={activeProject.id}
+          projectName={activeProject.name}
+          folderId={folder ?? null}
+          folderName={activeFolder?.name ?? null}
+        />
+      ) : (
+        <header className="mb-2">
           <h1 className="text-xl font-semibold tracking-tight text-foreground md:text-2xl">
             {heading}
           </h1>
-          <p className="mt-0.5 max-w-xl text-sm text-muted">{subtitle}</p>
-        </div>
-        {activeProject ? (
-          <ProjectPageActions projectId={activeProject.id} parentFolderId={folder ?? null} />
-        ) : null}
-      </header>
+          {subtitle ? <p className="mt-0.5 max-w-xl text-sm text-muted">{subtitle}</p> : null}
+        </header>
+      )}
 
       <div className="flex-1">
         {!result.ok ? (
@@ -106,6 +130,7 @@ export default async function Home({
             recordings={result.recordings.map(toLibraryRecording)}
             projectId={project ?? null}
             folderId={folder ?? null}
+            folders={visibleFolders}
           />
         )}
       </div>

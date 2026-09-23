@@ -163,5 +163,8 @@ export const modalButtonSecondary =
 export const modalButtonPrimary =
   "rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-accent-hover disabled:opacity-50";
 
+export const modalButtonDanger =
+  "rounded-lg bg-danger px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-red-700 disabled:opacity-50";
+
 export const modalInputClass =
   "w-full rounded-lg border border-border bg-background px-3 py-2.5 text-sm text-foreground outline-none transition-[border-color,box-shadow] placeholder:text-zinc-400 focus:border-accent-muted focus:ring-2 focus:ring-accent-soft";

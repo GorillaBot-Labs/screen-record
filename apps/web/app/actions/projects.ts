@@ -4,6 +4,8 @@ import { revalidatePath } from "next/cache";
 import {
   createFolderInCatalog,
   createProjectInCatalog,
+  deleteFolderInCatalog,
+  deleteProjectInCatalog,
   moveRecordingInCatalog,
 } from "@/lib/projects";
 
@@ -33,5 +35,17 @@ export async function moveRecording(input: {
     revalidatePath("/");
     revalidatePath(`/r/${input.recordingId}`);
   }
+  return result;
+}
+
+export async function deleteFolder(folderId: string) {
+  const result = await deleteFolderInCatalog(folderId);
+  if (result.ok) revalidatePath("/");
+  return result;
+}
+
+export async function deleteProject(input: { projectId: string; confirmationName: string }) {
+  const result = await deleteProjectInCatalog(input);
+  if (result.ok) revalidatePath("/");
   return result;
 }

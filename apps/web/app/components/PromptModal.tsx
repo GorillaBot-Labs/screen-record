@@ -2,18 +2,22 @@
 
 import {
   Modal,
+  modalButtonDanger,
   modalButtonPrimary,
   modalButtonSecondary,
   modalInputClass,
 } from "@/app/components/Modal";
-import { useCallback, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 type PromptModalProps = {
   open: boolean;
   title: string;
   label: string;
+  description?: string;
   placeholder?: string;
   confirmLabel?: string;
+  expectedValue?: string;
+  destructive?: boolean;
   onConfirm: (value: string) => void;
   onCancel: () => void;
 };
@@ -22,29 +26,42 @@ export function PromptModal({
   open,
   title,
   label,
+  description,
   placeholder,
   confirmLabel = "Create",
+  expectedValue,
+  destructive = false,
   onConfirm,
   onCancel,
 }: PromptModalProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const formRef = useRef<HTMLFormElement>(null);
+  const [value, setValue] = useState("");
+
+  useEffect(() => {
+    if (!open) setValue("");
+  }, [open]);
 
   const handleSubmit = useCallback(
     (event: React.FormEvent<HTMLFormElement>) => {
       event.preventDefault();
-      const value = new FormData(formRef.current!).get("name");
-      if (typeof value !== "string" || !value.trim()) return;
-      onConfirm(value.trim());
+      const nextValue = new FormData(formRef.current!).get("name");
+      if (typeof nextValue !== "string" || !nextValue.trim()) return;
+      if (expectedValue !== undefined && nextValue !== expectedValue) return;
+      onConfirm(nextValue);
     },
-    [onConfirm],
+    [expectedValue, onConfirm],
   );
+
+  const confirmDisabled = expectedValue !== undefined && value !== expectedValue;
+  const confirmClass = destructive ? modalButtonDanger : modalButtonPrimary;
 
   return (
     <Modal
       open={open}
       onClose={onCancel}
       title={title}
+      description={description}
       size="sm"
       initialFocusRef={inputRef}
       footer={
@@ -52,7 +69,12 @@ export function PromptModal({
           <button type="button" onClick={onCancel} className={modalButtonSecondary}>
             Cancel
           </button>
-          <button type="submit" form="prompt-modal-form" className={modalButtonPrimary}>
+          <button
+            type="submit"
+            form="prompt-modal-form"
+            disabled={confirmDisabled}
+            className={confirmClass}
+          >
             {confirmLabel}
           </button>
         </>
@@ -68,6 +90,8 @@ export function PromptModal({
             required
             maxLength={120}
             placeholder={placeholder}
+            value={value}
+            onChange={(event) => setValue(event.target.value)}
             className={`mt-1.5 ${modalInputClass}`}
           />
         </label>

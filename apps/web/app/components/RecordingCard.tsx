@@ -12,14 +12,17 @@ import { formatVideoTimestamp } from "@/lib/video-time";
 import { Link2, MessageSquare, Play, Trash2 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
+import { useDraggable } from "@dnd-kit/core";
+import { CSS } from "@dnd-kit/utilities";
 
 type RecordingCardProps = {
   recording: LibraryRecording;
   selected?: boolean;
   onSelectedChange?: (id: string, selected: boolean) => void;
   onTagClick?: (tag: string) => void;
+  draggable?: boolean;
 };
 
 export function RecordingCard({
@@ -27,9 +30,29 @@ export function RecordingCard({
   selected = false,
   onSelectedChange,
   onTagClick,
+  draggable = false,
 }: RecordingCardProps) {
   const router = useRouter();
   const [deleting, setDeleting] = useState(false);
+  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
+    id: recording.id,
+    disabled: !draggable,
+    data: { type: "recording" },
+  });
+
+  const dragStyle = transform ? { transform: CSS.Translate.toString(transform) } : undefined;
+  const draggedRef = useRef(false);
+
+  useEffect(() => {
+    if (isDragging) draggedRef.current = true;
+  }, [isDragging]);
+
+  const blockNavigationAfterDrag = useCallback((event: React.MouseEvent) => {
+    if (!draggedRef.current) return;
+    event.preventDefault();
+    event.stopPropagation();
+    draggedRef.current = false;
+  }, []);
 
   const sharePagePath = `/r/${recording.id}`;
   const name = displayTitle(recording);
@@ -81,7 +104,16 @@ export function RecordingCard({
 
   return (
     <article
-      className={`group flex flex-col gap-2.5 ${selected ? "rounded-xl ring-2 ring-accent ring-offset-2 ring-offset-background" : ""}`}
+      ref={setNodeRef}
+      style={dragStyle}
+      {...(draggable ? listeners : {})}
+      {...(draggable ? attributes : {})}
+      onClickCapture={draggable ? blockNavigationAfterDrag : undefined}
+      className={`group flex flex-col gap-2.5 touch-none ${
+        selected ? "rounded-xl ring-2 ring-accent ring-offset-2 ring-offset-background" : ""
+      } ${draggable ? "cursor-grab active:cursor-grabbing" : ""} ${
+        isDragging ? "z-10 opacity-60" : ""
+      }`}
     >
       <div className="relative overflow-hidden rounded-xl bg-zinc-950">
         {onSelectedChange ? (
@@ -98,6 +130,7 @@ export function RecordingCard({
 
         <Link
           href={sharePagePath}
+          onClick={draggable ? blockNavigationAfterDrag : undefined}
           className="relative block outline-none"
           aria-label={`Open recording: ${name}`}
         >
@@ -159,7 +192,11 @@ export function RecordingCard({
 
       <div className="min-w-0 px-0.5">
         <h2 className="truncate text-sm font-medium text-foreground" title={name}>
-          <Link href={sharePagePath} className="hover:text-accent">
+          <Link
+            href={sharePagePath}
+            onClick={draggable ? blockNavigationAfterDrag : undefined}
+            className="hover:text-accent"
+          >
             {name}
           </Link>
         </h2>
