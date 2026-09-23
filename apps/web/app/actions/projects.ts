@@ -10,8 +10,6 @@ import {
   type ProjectMutationResult,
 } from "@/lib/projects";
 
-export type { FolderMutationResult, MoveRecordingResult, ProjectMutationResult };
-
 export async function createProject(name: string): Promise<ProjectMutationResult> {
   const result = await createProjectInCatalog(name);
   if (result.ok) revalidatePath("/");

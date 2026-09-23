@@ -107,7 +107,7 @@ export default async function RecordingDetailPage({
 
   if (!recording) notFound();
 
-  const shareUrl = `/r/${id}`;
+  const shareUrl = `${appBaseUrl()}/r/${id}`;
   const downloadFilename =
     recording.gcsObjectName.split("/").pop() ?? `recording-${id}.mp4`;
   const initialComments = recording.comments.map((c) => ({

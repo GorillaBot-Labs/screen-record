@@ -27,23 +27,18 @@ export function RecordingShareActions({
   const [copied, setCopied] = useState<"link" | "embed" | null>(null);
   const [embedOpen, setEmbedOpen] = useState(false);
 
-  const absoluteShareUrl = useMemo(
-    () => (shareUrl.startsWith("http") ? shareUrl : `${window.location.origin}${shareUrl}`),
-    [shareUrl],
-  );
-
-  const embedHtml = useMemo(() => buildEmbedHtml(absoluteShareUrl), [absoluteShareUrl]);
+  const embedHtml = useMemo(() => buildEmbedHtml(shareUrl), [shareUrl]);
 
   const copyShareLink = useCallback(async () => {
     try {
-      await navigator.clipboard.writeText(absoluteShareUrl);
+      await navigator.clipboard.writeText(shareUrl);
       setCopied("link");
       toast.success("Link copied to clipboard");
       window.setTimeout(() => setCopied(null), 2000);
     } catch {
       toast.error("Could not copy link");
     }
-  }, [absoluteShareUrl]);
+  }, [shareUrl]);
 
   const copyEmbed = useCallback(async () => {
     try {
