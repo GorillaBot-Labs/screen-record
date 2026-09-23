@@ -29,6 +29,7 @@ export async function deleteRecording(recordingId: string): Promise<DeleteRecord
   }
 
   try {
+    await prisma.recordingComment.deleteMany({ where: { recordingId } });
     await prisma.recording.delete({ where: { id: recordingId } });
   } catch {
     return { ok: false, error: "Storage file was removed but the catalog row could not be deleted" };

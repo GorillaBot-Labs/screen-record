@@ -290,30 +290,56 @@ function defaultOutputPath(): string {
   return path.join(recordingStagingDir(), `recording_${stamp}.mp4`)
 }
 
-function notifyShareLinkCopied(): void {
+type WebIngestResult =
+  | { ok: true; detailUrl: string }
+  | { ok: false; reason: 'not_configured' }
+  | { ok: false; reason: 'request_failed'; error: string }
+
+function notifyRecordingReady(detailUrl: string | undefined): void {
   if (!Notification.isSupported()) return
+  if (detailUrl) {
+    new Notification({
+      title: 'Your recording is ready',
+      body: 'Share link copied. Opening your recording page in the browser.',
+    }).show()
+    return
+  }
   new Notification({
-    title: 'Recording ready',
-    body: 'Your share link was copied to the clipboard.',
+    title: 'Recording uploaded',
+    body: 'Direct video link copied to the clipboard.',
   }).show()
 }
 
 /** Tell the local web app to upsert the Mongo row; secret must match web `DESKTOP_INGEST_SECRET`. */
-async function ingestRecordingToWeb(gcsObjectName: string, publicUrl: string): Promise<string | undefined> {
+async function ingestRecordingToWeb(gcsObjectName: string, publicUrl: string): Promise<WebIngestResult> {
   const base = process.env.WEB_APP_BASE_URL?.trim()?.replace(/\/+$/, '')
   const secret = process.env.DESKTOP_INGEST_SECRET?.trim()
-  if (!base || !secret) return undefined
+  if (!base || !secret) return { ok: false, reason: 'not_configured' }
   try {
     const res = await fetch(`${base}/api/recordings/ingest`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', 'x-desktop-ingest-secret': secret },
       body: JSON.stringify({ gcsObjectName, publicUrl }),
     })
-    if (!res.ok) return undefined
+    if (!res.ok) {
+      let error = `HTTP ${res.status}`
+      try {
+        const j = (await res.json()) as { error?: unknown }
+        if (typeof j.error === 'string' && j.error.trim()) error = j.error.trim()
+      } catch {
+        /* ignore */
+      }
+      return { ok: false, reason: 'request_failed', error }
+    }
     const j = (await res.json()) as { ok?: unknown; detailUrl?: unknown }
-    return typeof j.detailUrl === 'string' && j.detailUrl ? j.detailUrl : undefined
-  } catch {
-    return undefined
+    const detailUrl = typeof j.detailUrl === 'string' ? j.detailUrl.trim() : ''
+    if (!detailUrl) {
+      return { ok: false, reason: 'request_failed', error: 'Web app did not return a share link.' }
+    }
+    return { ok: true, detailUrl }
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e)
+    return { ok: false, reason: 'request_failed', error: msg }
   }
 }
 
@@ -787,14 +813,20 @@ ipcMain.handle(
         if (sender.isDestroyed()) return
         let localFileDeleted = false
         let detailUrl: string | undefined
+        let ingestError: string | undefined
         if (result.ok) {
           const gcsUrl = result.url
-          detailUrl = await ingestRecordingToWeb(result.objectName, gcsUrl)
+          const ingest = await ingestRecordingToWeb(result.objectName, gcsUrl)
+          if (ingest.ok) {
+            detailUrl = ingest.detailUrl
+          } else if (ingest.reason === 'request_failed') {
+            ingestError = ingest.error
+          }
 
           const shareUrl = detailUrl ?? gcsUrl
           recordSuccessfulUploadUrl(shareUrl)
           clipboard.writeText(shareUrl)
-          notifyShareLinkCopied()
+          notifyRecordingReady(detailUrl)
           if (detailUrl) {
             try {
               await shell.openExternal(detailUrl)
@@ -818,6 +850,7 @@ ipcMain.handle(
                 gcsUrl: result.url,
                 gcsObjectName: result.objectName,
                 ...(detailUrl ? { detailUrl } : {}),
+                ...(ingestError ? { ingestError } : {}),
                 ...(localFileDeleted ? { localFileDeleted: true as const } : {}),
               }
             : { error: result.error }),

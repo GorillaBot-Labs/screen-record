@@ -2,135 +2,103 @@
 
 import type { Recording } from "@prisma/client";
 import { deleteRecording } from "@/app/actions/delete-recording";
-import { ExternalLink, Link2, Trash2 } from "lucide-react";
+import {
+  asDate,
+  displayTitle,
+  relativeTime,
+} from "@/lib/recording-display";
+import { Link2, Play, Trash2 } from "lucide-react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useState } from "react";
 import { toast } from "sonner";
 
-function displayName(recording: Pick<Recording, "title" | "gcsObjectName">) {
-  const t = recording.title?.trim();
-  if (t) return t;
-  const base = recording.gcsObjectName.split("/").pop() ?? recording.gcsObjectName;
-  try {
-    return decodeURIComponent(base);
-  } catch {
-    return base;
-  }
-}
-
-const dateFormatter = new Intl.DateTimeFormat(undefined, {
-  dateStyle: "medium",
-  timeStyle: "short",
-});
-
-/** RSC → client props serialize `Date` as ISO strings. */
-function asDate(value: Date | string): Date {
-  return value instanceof Date ? value : new Date(value);
-}
-
 export function RecordingCard({ recording }: { recording: Recording }) {
-  const videoRef = useRef<HTMLVideoElement>(null);
   const router = useRouter();
   const [deleting, setDeleting] = useState(false);
 
-  const togglePlayback = useCallback(() => {
-    const el = videoRef.current;
-    if (!el) return;
-    if (el.paused) {
-      void el.play();
-    } else {
-      el.pause();
-    }
-  }, []);
-
-  const copyPublicUrl = useCallback(async () => {
-    try {
-      await navigator.clipboard.writeText(recording.publicUrl);
-      toast.success("Link copied to clipboard");
-    } catch {
-      toast.error("Could not copy link");
-    }
-  }, [recording.publicUrl]);
-
-  const handleDelete = useCallback(async () => {
-    const label = displayName(recording);
-    if (
-      !window.confirm(
-        `Delete "${label}"? This removes the file from cloud storage and the catalog. You cannot undo this.`,
-      )
-    ) {
-      return;
-    }
-    setDeleting(true);
-    try {
-      const result = await deleteRecording(recording.id);
-      if (!result.ok) {
-        toast.error(result.error);
-        return;
-      }
-      toast.success("Recording deleted");
-      router.refresh();
-    } catch {
-      toast.error("Delete failed");
-    } finally {
-      setDeleting(false);
-    }
-  }, [recording, router]);
-
-  const name = displayName(recording);
+  const sharePagePath = `/r/${recording.id}`;
+  const name = displayTitle(recording);
   const createdAt = asDate(recording.createdAt);
 
+  const copyShareLink = useCallback(
+    async (e: React.MouseEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      try {
+        const shareUrl = `${window.location.origin}${sharePagePath}`;
+        await navigator.clipboard.writeText(shareUrl);
+        toast.success("Share link copied");
+      } catch {
+        toast.error("Could not copy link");
+      }
+    },
+    [sharePagePath],
+  );
+
+  const handleDelete = useCallback(
+    async (e: React.MouseEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (
+        !window.confirm(
+          `Delete "${name}"? This removes the file from cloud storage and the catalog. You cannot undo this.`,
+        )
+      ) {
+        return;
+      }
+      setDeleting(true);
+      try {
+        const result = await deleteRecording(recording.id);
+        if (!result.ok) {
+          toast.error(result.error);
+          return;
+        }
+        toast.success("Recording deleted");
+        router.refresh();
+      } catch {
+        toast.error("Delete failed");
+      } finally {
+        setDeleting(false);
+      }
+    },
+    [name, recording.id, router],
+  );
+
   return (
-    <article className="flex flex-col overflow-hidden rounded-xl border border-stone-200/80 bg-white shadow-sm shadow-stone-900/5 dark:border-zinc-800 dark:bg-zinc-900/80 dark:shadow-none">
-      <div className="aspect-video bg-zinc-950">
-        <video
-          ref={videoRef}
-          className="h-full w-full cursor-pointer object-contain outline-none focus-visible:ring-2 focus-visible:ring-stone-400 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-950 dark:focus-visible:ring-zinc-500"
-          playsInline
-          preload="metadata"
-          src={recording.publicUrl}
-          disablePictureInPicture
-          tabIndex={0}
-          aria-label={`Video: ${name}. Click to play or pause.`}
-          onClick={togglePlayback}
-          onKeyDown={(e) => {
-            if (e.key === " " || e.key === "Enter") {
-              e.preventDefault();
-              togglePlayback();
-            }
-          }}
+    <article className="group flex flex-col gap-2.5">
+      <div className="relative overflow-hidden rounded-xl bg-zinc-950">
+        <Link
+          href={sharePagePath}
+          className="relative block outline-none"
+          aria-label={`Open recording: ${name}`}
         >
-          Your browser does not support embedded video.
-        </video>
-      </div>
-      <div className="flex flex-col gap-1 border-t border-stone-100 px-4 py-3 dark:border-zinc-800">
-        <h2 className="truncate text-sm font-semibold text-stone-900 dark:text-zinc-50" title={name}>
-          {name}
-        </h2>
-        <time
-          className="text-xs text-stone-500 dark:text-zinc-400"
-          dateTime={createdAt.toISOString()}
-        >
-          {dateFormatter.format(createdAt)}
-        </time>
-        {recording.notes?.trim() ? (
-          <p className="line-clamp-2 text-xs text-stone-600 dark:text-zinc-400">{recording.notes.trim()}</p>
-        ) : null}
-        <div className="mt-1 flex flex-wrap items-center gap-2">
-          <a
-            href={recording.publicUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-1.5 text-xs font-medium text-stone-700 underline-offset-2 hover:underline dark:text-zinc-300"
-          >
-            <ExternalLink className="h-3.5 w-3.5 shrink-0 opacity-80" aria-hidden />
-            Open in new tab
-          </a>
+          <div className="aspect-video">
+            <video
+              className="h-full w-full object-cover transition-transform duration-200 group-hover:scale-[1.02]"
+              playsInline
+              preload="metadata"
+              src={recording.publicUrl}
+              disablePictureInPicture
+              tabIndex={-1}
+              aria-hidden
+            >
+              Your browser does not support embedded video.
+            </video>
+          </div>
+          <span className="pointer-events-none absolute inset-0 bg-zinc-950/0 transition-colors duration-200 group-hover:bg-zinc-950/20" />
+          <span className="pointer-events-none absolute inset-0 flex items-center justify-center opacity-0 transition-opacity duration-200 group-hover:opacity-100">
+            <span className="flex h-11 w-11 items-center justify-center rounded-full bg-white/95 text-foreground shadow-md shadow-zinc-950/20">
+              <Play className="ml-0.5 h-5 w-5 fill-current" aria-hidden />
+            </span>
+          </span>
+        </Link>
+        <div className="absolute right-2 top-2 flex gap-1 opacity-0 transition-opacity duration-200 group-focus-within:opacity-100 group-hover:opacity-100">
           <button
             type="button"
-            onClick={copyPublicUrl}
-            className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-stone-200 bg-stone-50 text-stone-700 transition-colors hover:bg-stone-100 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-200 dark:hover:bg-zinc-700"
-            aria-label="Copy video URL to clipboard"
+            onClick={copyShareLink}
+            className="flex h-8 w-8 items-center justify-center rounded-lg bg-white/95 text-zinc-700 shadow-sm transition-colors hover:bg-white"
+            aria-label="Copy share link"
           >
             <Link2 className="h-4 w-4" aria-hidden />
           </button>
@@ -138,12 +106,27 @@ export function RecordingCard({ recording }: { recording: Recording }) {
             type="button"
             onClick={handleDelete}
             disabled={deleting}
-            className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-red-200 bg-red-50 text-red-800 transition-colors hover:bg-red-100 disabled:opacity-50 dark:border-red-900/60 dark:bg-red-950/40 dark:text-red-200 dark:hover:bg-red-950/70"
+            className="flex h-8 w-8 items-center justify-center rounded-lg bg-white/95 text-danger shadow-sm transition-colors hover:bg-white disabled:opacity-50"
             aria-label="Delete recording"
           >
             <Trash2 className="h-4 w-4" aria-hidden />
           </button>
         </div>
+      </div>
+
+      <div className="min-w-0 px-0.5">
+        <h2 className="truncate text-sm font-medium text-foreground" title={name}>
+          <Link href={sharePagePath} className="hover:text-accent">
+            {name}
+          </Link>
+        </h2>
+        <time
+          className="mt-0.5 block text-xs text-muted"
+          dateTime={createdAt.toISOString()}
+          title={createdAt.toLocaleString()}
+        >
+          {relativeTime(createdAt)}
+        </time>
       </div>
     </article>
   );

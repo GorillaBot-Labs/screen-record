@@ -1,7 +1,33 @@
+import { RecordingShareActions } from "@/app/r/[id]/RecordingShareActions";
+import { RecordingViewer } from "@/app/r/[id]/RecordingViewer";
+import {
+  displayTitle,
+  recordingDateLongFormatter,
+} from "@/lib/recording-display";
 import { prisma } from "@/lib/prisma";
+import type { Metadata } from "next";
+import Link from "next/link";
 import { notFound } from "next/navigation";
+import { ChevronRight } from "lucide-react";
 
 export const dynamic = "force-dynamic";
+
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ id: string }>;
+}): Promise<Metadata> {
+  const { id } = await params;
+  const recording = await prisma.recording.findUnique({
+    where: { id },
+    select: { title: true, gcsObjectName: true },
+  });
+  if (!recording) return { title: "Recording not found" };
+  return {
+    title: displayTitle(recording),
+    description: "Screen recording",
+  };
+}
 
 export default async function RecordingDetailPage({
   params,
@@ -18,41 +44,64 @@ export default async function RecordingDetailPage({
       gcsObjectName: true,
       createdAt: true,
       notes: true,
+      comments: {
+        orderBy: [{ timestampSeconds: "asc" }, { createdAt: "asc" }],
+        select: {
+          id: true,
+          body: true,
+          timestampSeconds: true,
+          createdAt: true,
+        },
+      },
     },
   });
 
   if (!recording) notFound();
 
-  const title =
-    recording.title?.trim() ||
-    recording.gcsObjectName.split("/").pop() ||
-    "Recording";
+  const title = displayTitle(recording);
+  const shareUrl = `/r/${id}`;
+  const initialComments = recording.comments.map((c) => ({
+    ...c,
+    createdAt: c.createdAt.toISOString(),
+  }));
 
   return (
-    <div className="min-h-full bg-stone-50 text-stone-900 dark:bg-zinc-950 dark:text-zinc-50">
-      <main className="mx-auto flex max-w-5xl flex-col gap-6 px-4 py-10 sm:px-6 lg:px-8">
-        <header className="flex flex-col gap-2">
-          <h1 className="text-xl font-semibold tracking-tight">{title}</h1>
-          {recording.notes?.trim() ? (
-            <p className="text-sm text-stone-600 dark:text-zinc-400">{recording.notes.trim()}</p>
-          ) : null}
-        </header>
+    <main className="flex min-h-full flex-1 flex-col bg-background">
+      <div className="shrink-0 border-b border-border px-6 py-4 md:px-8">
+        <nav aria-label="Breadcrumb" className="mb-3 flex items-center gap-1 text-sm text-muted">
+          <Link href="/" className="transition-colors hover:text-accent">
+            Library
+          </Link>
+          <ChevronRight className="h-3.5 w-3.5 shrink-0 opacity-60" aria-hidden />
+          <span className="truncate text-foreground">{title}</span>
+        </nav>
 
-        <section className="overflow-hidden rounded-xl border border-stone-200/80 bg-white shadow-sm shadow-stone-900/5 dark:border-zinc-800 dark:bg-zinc-900/60 dark:shadow-none">
-          <div className="aspect-video bg-zinc-950">
-            <video
-              className="h-full w-full object-contain"
-              controls
-              playsInline
-              preload="metadata"
-              src={recording.publicUrl}
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+          <div className="min-w-0 flex-1">
+            <h1 className="text-xl font-semibold tracking-tight text-foreground md:text-2xl">
+              {title}
+            </h1>
+            <time
+              className="mt-1 block text-sm text-muted"
+              dateTime={recording.createdAt.toISOString()}
             >
-              Your browser does not support embedded video.
-            </video>
+              {recordingDateLongFormatter.format(recording.createdAt)}
+            </time>
+            {recording.notes?.trim() ? (
+              <p className="mt-3 max-w-2xl text-sm leading-relaxed text-muted">
+                {recording.notes.trim()}
+              </p>
+            ) : null}
           </div>
-        </section>
-      </main>
-    </div>
+          <RecordingShareActions shareUrl={shareUrl} publicUrl={recording.publicUrl} />
+        </div>
+      </div>
+
+      <RecordingViewer
+        recordingId={id}
+        publicUrl={recording.publicUrl}
+        initialComments={initialComments}
+      />
+    </main>
   );
 }
-

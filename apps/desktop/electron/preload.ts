@@ -29,6 +29,8 @@ export type RecordingGcsUploadPayload =
       gcsObjectName: string
       /** Optional web app detail page URL. */
       detailUrl?: string
+      /** Set when web ingest was attempted but failed (GCS link used instead). */
+      ingestError?: string
       outputPath: string
       localFileDeleted?: boolean
     }

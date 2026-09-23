@@ -29,9 +29,12 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: false, error: "Need gcsObjectName and publicUrl" }, { status: 400 });
   }
 
+  const filename = gcsObjectName.split("/").pop() ?? gcsObjectName;
+  const titleFromFilename = filename.replace(/\.mp4$/i, "") || undefined;
+
   const recording = await prisma.recording.upsert({
     where: { gcsObjectName },
-    create: { gcsObjectName, publicUrl },
+    create: { gcsObjectName, publicUrl, title: titleFromFilename },
     update: { publicUrl },
     select: { id: true },
   });

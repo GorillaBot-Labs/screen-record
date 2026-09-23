@@ -1,10 +1,7 @@
+import { RecordingCard } from "@/app/components/RecordingCard";
 import { prisma } from "@/lib/prisma";
-import { GallerySignOut } from "./components/GallerySignOut";
-import { RecordingCard } from "./components/RecordingCard";
 
 export const dynamic = "force-dynamic";
-
-const hasGalleryAuth = Boolean(process.env.INTERNAL_GALLERY_SECRET?.trim());
 
 async function loadRecordings() {
   try {
@@ -20,46 +17,52 @@ async function loadRecordings() {
 
 export default async function Home() {
   const result = await loadRecordings();
+  const count = result.ok ? result.recordings.length : 0;
 
   return (
-    <div className="min-h-full bg-stone-50 text-stone-900 dark:bg-zinc-950 dark:text-zinc-50">
-      <header className="border-b border-stone-200/80 bg-white/80 backdrop-blur-sm dark:border-zinc-800 dark:bg-zinc-950/80">
-        <div className="mx-auto flex max-w-6xl flex-col gap-1 px-4 py-8 sm:px-6 lg:px-8">
-          <div className="flex flex-wrap items-start justify-between gap-4">
-            <h1 className="text-2xl font-semibold tracking-tight text-stone-900 dark:text-zinc-50">
-              Recordings
-            </h1>
-            {hasGalleryAuth ? <GallerySignOut /> : null}
+    <main className="flex min-h-full flex-1 flex-col bg-background">
+      <div className="border-b border-border px-6 py-6 md:px-8">
+        <div className="flex flex-wrap items-end justify-between gap-4">
+          <div>
+            <h1 className="text-2xl font-semibold tracking-tight text-foreground">Videos</h1>
+            <p className="mt-1 max-w-xl text-sm text-muted">
+              Screen recordings from your desktop app. Click any video to watch or share.
+            </p>
           </div>
-          <p className="max-w-2xl text-sm text-stone-600 dark:text-zinc-400">
-            Internal gallery. Videos stream from stored public URLs; run reconcile to sync the catalog from
-            GCS.
-          </p>
+          {result.ok && count > 0 ? (
+            <p className="text-sm font-medium text-muted">
+              {count} video{count === 1 ? "" : "s"}
+            </p>
+          ) : null}
         </div>
-      </header>
+      </div>
 
-      <main className="mx-auto max-w-6xl px-4 py-10 sm:px-6 lg:px-8">
+      <div className="flex-1 px-6 py-6 md:px-8">
         {!result.ok ? (
           <div
-            className="rounded-xl border border-red-200 bg-red-50 px-4 py-6 text-sm text-red-900 dark:border-red-900/50 dark:bg-red-950/40 dark:text-red-200"
+            className="rounded-xl border border-red-200 bg-danger-soft px-5 py-6 text-sm text-red-900"
             role="alert"
           >
             <p className="font-medium">Could not load recordings</p>
-            <p className="mt-1 text-red-800/90 dark:text-red-300/90">
-              Check <code className="rounded bg-red-100 px-1 py-0.5 font-mono text-xs dark:bg-red-900/60">DATABASE_URL</code>{" "}
+            <p className="mt-1 text-red-800/90">
+              Check{" "}
+              <code className="rounded bg-red-100 px-1 py-0.5 font-mono text-xs">DATABASE_URL</code>{" "}
               and that Prisma can reach MongoDB, then refresh.
             </p>
           </div>
-        ) : result.recordings.length === 0 ? (
-          <div className="rounded-xl border border-dashed border-stone-300 bg-white px-6 py-16 text-center dark:border-zinc-700 dark:bg-zinc-900/50">
-            <p className="text-base font-medium text-stone-800 dark:text-zinc-200">No recordings yet</p>
-            <p className="mx-auto mt-2 max-w-md text-sm text-stone-600 dark:text-zinc-400">
-              Run <code className="rounded bg-stone-100 px-1.5 py-0.5 font-mono text-xs dark:bg-zinc-800">npm run reconcile -w screen-record-web</code>{" "}
-              from the repo root (with GCS and DB env set) to backfill from your bucket.
+        ) : count === 0 ? (
+          <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-border bg-surface px-6 py-20 text-center">
+            <p className="text-base font-medium text-foreground">No recordings yet</p>
+            <p className="mx-auto mt-2 max-w-md text-sm text-muted">
+              Record from the desktop app, or run{" "}
+              <code className="rounded bg-white px-1.5 py-0.5 font-mono text-xs text-foreground">
+                npm run reconcile -w screen-record-web
+              </code>{" "}
+              to backfill from your bucket.
             </p>
           </div>
         ) : (
-          <ul className="grid list-none grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
+          <ul className="grid list-none grid-cols-1 gap-x-5 gap-y-8 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
             {result.recordings.map((recording) => (
               <li key={recording.id}>
                 <RecordingCard recording={recording} />
@@ -67,7 +70,7 @@ export default async function Home() {
             ))}
           </ul>
         )}
-      </main>
-    </div>
+      </div>
+    </main>
   );
 }

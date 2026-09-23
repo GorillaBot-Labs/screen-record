@@ -8,12 +8,25 @@ datasource db {
 }
 
 model Recording {
-  id            String   @id @default(auto()) @map("_id") @db.ObjectId
-  gcsObjectName String   @unique
+  id            String             @id @default(auto()) @map("_id") @db.ObjectId
+  gcsObjectName String             @unique
   publicUrl     String
-  createdAt     DateTime @default(now())
+  createdAt     DateTime           @default(now())
   title         String?
   notes         String?
+  comments      RecordingComment[]
 
   @@map("recordings")
+}
+
+model RecordingComment {
+  id               String   @id @default(auto()) @map("_id") @db.ObjectId
+  recordingId      String   @db.ObjectId
+  recording        Recording @relation(fields: [recordingId], references: [id])
+  body             String
+  timestampSeconds Float
+  createdAt        DateTime @default(now())
+
+  @@index([recordingId, createdAt])
+  @@map("recording_comments")
 }

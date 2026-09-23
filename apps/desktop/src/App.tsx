@@ -123,14 +123,26 @@ function statusToneClass(params: {
 
 function recordingTitleFromUrl(url: string): string {
   try {
-    const name = decodeURIComponent(
-      new URL(url).pathname.split("/").pop() ?? "",
-    );
+    const parsed = new URL(url);
+    const segments = parsed.pathname.split("/").filter(Boolean);
+    const last = segments.at(-1) ?? "";
+    if (parsed.pathname.startsWith("/r/") && segments.length === 2) {
+      return "Recording";
+    }
+    const name = decodeURIComponent(last);
     if (!name) return "Recording";
     const withoutExt = name.replace(/\.mp4$/i, "");
     return withoutExt.length > 0 ? withoutExt : name;
   } catch {
     return "Recording";
+  }
+}
+
+function isWebShareUrl(url: string): boolean {
+  try {
+    return new URL(url).pathname.startsWith("/r/");
+  } catch {
+    return false;
   }
 }
 
@@ -148,6 +160,10 @@ export default function App() {
   /** After sck-record exits: upload to GCS until we get `recording:gcs-upload`. */
   const [cloudUploading, setCloudUploading] = useState(false);
   const [shareUrl, setShareUrl] = useState<string | null>(null);
+  const [shareDetailUrl, setShareDetailUrl] = useState<string | null>(null);
+  const [shareIngestWarning, setShareIngestWarning] = useState<string | null>(
+    null,
+  );
   const [shareError, setShareError] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [diagnosticsEvents, setDiagnosticsEvents] = useState<DiagnosticsEvent[]>(
@@ -272,6 +288,8 @@ export default function App() {
       if (cancelled) {
         setCloudUploading(false);
         setShareUrl(null);
+        setShareDetailUrl(null);
+        setShareIngestWarning(null);
         setShareError(null);
         setOutputPath(null);
         setStatus("Cancelled.");
@@ -300,14 +318,33 @@ export default function App() {
       if (p.outputPath !== outputPathRef.current) return;
       if (p.ok) {
         setShareUrl(p.url);
+        setShareDetailUrl(p.detailUrl ?? null);
+        setShareIngestWarning(
+          p.detailUrl
+            ? null
+            : p.ingestError
+              ? `Could not reach the web app (${p.ingestError}). Copied the direct video link instead.`
+              : null,
+        );
         setShareError(null);
-        setStatus("Recording uploaded. Share link copied to the clipboard.");
+        setStatus(
+          p.detailUrl
+            ? "Your recording is ready. Share link copied — opening in your browser."
+            : p.ingestError
+              ? "Recording uploaded. Copied the direct video link instead."
+              : "Recording uploaded. Share link copied to the clipboard.",
+        );
+        if (p.detailUrl) {
+          setToast("Link copied");
+        }
         void refreshRecentRecordings();
         if (p.localFileDeleted) {
           setOutputPath(null);
         }
       } else {
         setShareUrl(null);
+        setShareDetailUrl(null);
+        setShareIngestWarning(null);
         setShareError(p.error);
         setStatus("Cloud upload failed.");
       }
@@ -792,16 +829,23 @@ export default function App() {
             </div>
             <div className="app-card-body">
               {cloudUploading ? (
-                <p className="hint">Uploading to Google Cloud…</p>
+                <p className="hint">Uploading and preparing your share link…</p>
               ) : null}
               {shareError ? <p className="hint warn">{shareError}</p> : null}
+              {shareIngestWarning ? (
+                <p className="hint warn">{shareIngestWarning}</p>
+              ) : null}
               {shareUrl ? (
                 <>
                   <div className="share-ready">
                     <div className="share-ready-header">
-                      <div className="share-ready-title">Ready to share</div>
+                      <div className="share-ready-title">
+                        {shareDetailUrl ? "Your recording is ready" : "Ready to share"}
+                      </div>
                       <div className="share-ready-sub">
-                        Link is public and was copied automatically.
+                        {shareDetailUrl
+                          ? "Anyone with this link can watch on the web. It was copied automatically."
+                          : "Direct video link copied automatically."}
                       </div>
                     </div>
                     <div className="share-ready-field">
@@ -821,15 +865,17 @@ export default function App() {
                       onClick={() => void handleCopyShareLink()}
                     >
                       <Copy size={16} aria-hidden />
-                      <span>Copy</span>
+                      <span>Copy link</span>
                     </button>
                     <button
                       type="button"
                       className="btn btn-outline"
-                      onClick={() => void handleOpenRecordingUrl(shareUrl)}
+                      onClick={() =>
+                        void handleOpenRecordingUrl(shareDetailUrl ?? shareUrl)
+                      }
                     >
                       <ExternalLink size={16} aria-hidden />
-                      <span>Open</span>
+                      <span>{shareDetailUrl ? "Open recording page" : "Open"}</span>
                     </button>
                     {outputPath ? (
                       <button
@@ -845,8 +891,8 @@ export default function App() {
                 </>
               ) : !cloudUploading && !shareError ? (
                 <p className="path-placeholder">
-                  When a recording ends, a public link from your GCS bucket
-                  appears here.
+                  When a recording ends, your web share link appears here and
+                  opens in the browser automatically.
                 </p>
               ) : null}
             </div>
@@ -863,7 +909,7 @@ export default function App() {
               <div className="app-details-body">
                 <div className="recent-controls">
                   <p className="hint hint-flush recent-hint">
-                    Up to five successful uploads from this Mac are kept here.
+                    Up to five recent share links from this Mac are kept here.
                   </p>
                   <button
                     type="button"
@@ -886,7 +932,9 @@ export default function App() {
                       <li key={url} className="recent-item">
                         <div className="recent-item-header">
                           <span className="recent-item-title">
-                            {recordingTitleFromUrl(url)}
+                            {isWebShareUrl(url)
+                              ? "Web recording"
+                              : recordingTitleFromUrl(url)}
                           </span>
                           <div className="recent-item-actions">
                             <button

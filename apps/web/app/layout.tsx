@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+import { AppShell } from "./components/AppShell";
 import { AppToaster } from "./components/AppToaster";
 import "./globals.css";
 
@@ -15,7 +16,7 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: "Recordings",
-  description: "Internal screen recording gallery",
+  description: "Screen recording gallery",
 };
 
 export default function RootLayout({
@@ -28,8 +29,8 @@ export default function RootLayout({
       lang="en"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
-      <body className="flex min-h-full flex-col">
-        {children}
+      <body className="flex min-h-dvh flex-col">
+        <AppShell>{children}</AppShell>
         <AppToaster />
       </body>
     </html>
