@@ -1,12 +1,17 @@
 "use client";
 
 import { createFolder, createProject } from "@/app/actions/projects";
+import { PromptModal } from "@/app/components/PromptModal";
 import type { ProjectTree } from "@/lib/projects";
 import { ChevronDown, ChevronRight, Folder, FolderPlus, Plus } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 import { useCallback, useMemo, useState } from "react";
 import { toast } from "sonner";
+
+type CreatePrompt =
+  | { kind: "project" }
+  | { kind: "folder"; projectId: string; parentFolderId?: string | null };
 
 type ProjectNavProps = {
   projectTree: ProjectTree[];
@@ -27,6 +32,7 @@ export function ProjectNav({ projectTree, onNavigate }: ProjectNavProps) {
   const onLibraryHome = pathname === "/" && !activeProject;
 
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  const [createPrompt, setCreatePrompt] = useState<CreatePrompt | null>(null);
 
   const rootsByProject = useMemo(() => {
     const map = new Map<string, ProjectTree["folders"]>();
@@ -52,32 +58,37 @@ export function ProjectNav({ projectTree, onNavigate }: ProjectNavProps) {
     return map;
   }, [projectTree]);
 
-  const handleCreateProject = useCallback(async () => {
-    const name = window.prompt("Project name");
-    if (!name?.trim()) return;
-    const result = await createProject(name);
-    if (!result.ok) {
-      toast.error(result.error);
-      return;
-    }
-    toast.success(`Created project “${result.name}”`);
-    onNavigate?.();
-  }, [onNavigate]);
+  const handleCreateConfirm = useCallback(
+    async (name: string) => {
+      const prompt = createPrompt;
+      setCreatePrompt(null);
+      if (!prompt) return;
 
-  const handleCreateFolder = useCallback(
-    async (projectId: string, parentFolderId?: string | null) => {
-      const name = window.prompt(parentFolderId ? "Subfolder name" : "Folder name");
-      if (!name?.trim()) return;
-      const result = await createFolder({ projectId, name, parentFolderId });
+      if (prompt.kind === "project") {
+        const result = await createProject(name);
+        if (!result.ok) {
+          toast.error(result.error);
+          return;
+        }
+        toast.success(`Created project “${result.name}”`);
+        onNavigate?.();
+        return;
+      }
+
+      const result = await createFolder({
+        projectId: prompt.projectId,
+        name,
+        parentFolderId: prompt.parentFolderId,
+      });
       if (!result.ok) {
         toast.error(result.error);
         return;
       }
       toast.success(`Created folder “${result.name}”`);
-      setExpanded((prev) => ({ ...prev, [projectId]: true }));
+      setExpanded((prev) => ({ ...prev, [prompt.projectId]: true }));
       onNavigate?.();
     },
-    [onNavigate],
+    [createPrompt, onNavigate],
   );
 
   const renderFolder = (projectId: string, folder: ProjectTree["folders"][number], depth = 0) => {
@@ -130,13 +141,30 @@ export function ProjectNav({ projectTree, onNavigate }: ProjectNavProps) {
     );
   };
 
+  const promptConfig =
+    createPrompt?.kind === "project"
+      ? { title: "New project", label: "Project name" }
+      : createPrompt?.kind === "folder"
+        ? createPrompt.parentFolderId
+          ? { title: "New subfolder", label: "Subfolder name" }
+          : { title: "New folder", label: "Folder name" }
+        : null;
+
   return (
-    <div className="mt-4 border-t border-border pt-4">
+    <>
+      <PromptModal
+        open={createPrompt !== null}
+        title={promptConfig?.title ?? ""}
+        label={promptConfig?.label ?? ""}
+        onConfirm={(name) => void handleCreateConfirm(name)}
+        onCancel={() => setCreatePrompt(null)}
+      />
+      <div className="mt-4 border-t border-border pt-4">
       <div className="mb-2 flex items-center justify-between px-3">
         <span className="text-xs font-semibold uppercase tracking-wide text-muted">Projects</span>
         <button
           type="button"
-          onClick={() => void handleCreateProject()}
+          onClick={() => setCreatePrompt({ kind: "project" })}
           className="flex h-7 w-7 items-center justify-center rounded-lg text-zinc-400 transition-colors hover:bg-surface hover:text-foreground"
           aria-label="Create project"
         >
@@ -193,7 +221,7 @@ export function ProjectNav({ projectTree, onNavigate }: ProjectNavProps) {
                 </Link>
                 <button
                   type="button"
-                  onClick={() => void handleCreateFolder(project.id)}
+                  onClick={() => setCreatePrompt({ kind: "folder", projectId: project.id })}
                   className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-zinc-400 hover:bg-surface hover:text-foreground"
                   aria-label={`Add folder to ${project.name}`}
                 >
@@ -208,5 +236,6 @@ export function ProjectNav({ projectTree, onNavigate }: ProjectNavProps) {
         })}
       </div>
     </div>
+    </>
   );
 }

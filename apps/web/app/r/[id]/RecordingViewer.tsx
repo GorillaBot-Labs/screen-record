@@ -35,6 +35,7 @@ export function RecordingViewer({
   startAtSeconds,
 }: RecordingViewerProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
+  const commentsRef = useRef<HTMLDivElement>(null);
 
   const [comments, setComments] = useState(initialComments);
   const [draft, setDraft] = useState("");
@@ -65,6 +66,12 @@ export function RecordingViewer({
       video.removeEventListener("loadedmetadata", onLoadedMetadata);
     };
   }, [startAtSeconds]);
+
+  useEffect(() => {
+    const list = commentsRef.current;
+    if (!list) return;
+    list.scrollTop = list.scrollHeight;
+  }, [comments.length]);
 
   const seekTo = useCallback((seconds: number) => {
     const video = videoRef.current;
@@ -153,77 +160,82 @@ export function RecordingViewer({
       </div>
 
       <aside className="flex min-h-0 flex-col border-t border-border bg-background xl:w-80 xl:shrink-0 xl:border-t-0 xl:border-l">
-        <div className="flex shrink-0 items-center gap-2 border-b border-border px-4 py-2.5">
-          <MessageSquare className="h-4 w-4 text-accent" aria-hidden />
+        <div className="flex shrink-0 items-center gap-2 border-b border-border px-4 py-3">
+          <MessageSquare className="h-4 w-4 shrink-0 text-accent" aria-hidden />
           <h2 className="text-sm font-semibold text-foreground">Comments</h2>
-          <span className="ml-auto text-xs text-muted">{comments.length}</span>
+          <span className="ml-auto inline-flex min-w-5 items-center justify-center rounded-full bg-surface px-1.5 py-0.5 text-xs font-medium tabular-nums text-muted">
+            {comments.length}
+          </span>
         </div>
 
-        <ul className="min-h-0 flex-1 space-y-1 overflow-y-auto p-3 xl:overscroll-contain">
-          {comments.length === 0 ? (
-            <li className="px-2 py-4 text-center text-sm leading-relaxed text-muted">
-              No notes yet. Each note saves at the current playback time.
-            </li>
-          ) : (
-            comments.map((comment) => (
-              <li key={comment.id}>
-                <button
-                  type="button"
-                  onClick={() => seekTo(comment.timestampSeconds)}
-                  className="group w-full rounded-lg px-3 py-2 text-left transition-colors hover:bg-accent-soft/60"
-                >
-                  <div className="mb-1 flex flex-wrap items-center gap-2">
-                    <span className="rounded-md bg-accent-soft px-1.5 py-0.5 font-mono text-xs font-medium text-accent">
-                      {formatVideoTimestamp(comment.timestampSeconds)}
-                    </span>
-                    <span className="text-xs text-muted">
-                      Anonymous · {postedFormatter.format(asDate(comment.createdAt))}
-                    </span>
-                  </div>
-                  <p className="text-sm leading-relaxed text-foreground">{comment.body}</p>
-                </button>
-              </li>
-            ))
-          )}
-        </ul>
+        <div
+          ref={commentsRef}
+          className="flex min-h-0 flex-1 flex-col overflow-y-auto xl:overscroll-contain"
+        >
+          <ul
+            className={`flex flex-col px-2 py-2 ${comments.length === 0 ? "min-h-full justify-center" : "mt-auto"}`}
+          >
+            {comments.length === 0 ? (
+              <li className="px-4 py-8 text-center text-sm text-muted">No notes yet</li>
+            ) : (
+              comments.map((comment) => (
+                <li key={comment.id} className="py-0.5">
+                  <button
+                    type="button"
+                    onClick={() => seekTo(comment.timestampSeconds)}
+                    className="group w-full rounded-lg px-2 py-2.5 text-left transition-colors hover:bg-accent-soft/50"
+                  >
+                    <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                      <span className="inline-flex shrink-0 rounded-md bg-accent-soft px-1.5 py-0.5 font-mono text-xs font-medium tabular-nums text-accent">
+                        {formatVideoTimestamp(comment.timestampSeconds)}
+                      </span>
+                      <span className="text-xs leading-none text-muted">
+                        Anonymous · {postedFormatter.format(asDate(comment.createdAt))}
+                      </span>
+                    </div>
+                    <p className="mt-2 text-sm leading-relaxed text-foreground">{comment.body}</p>
+                  </button>
+                </li>
+              ))
+            )}
+          </ul>
+        </div>
 
         <form
-          className="sticky bottom-0 z-10 shrink-0 border-t border-border bg-background/95 p-3 shadow-[0_-8px_24px_-8px_rgba(24,24,27,0.12)] backdrop-blur-sm supports-backdrop-filter:bg-background/90 xl:static xl:shadow-none xl:backdrop-blur-none pb-[max(0.75rem,env(safe-area-inset-bottom))]"
+          className="sticky bottom-0 z-10 shrink-0 border-t border-border bg-background px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] xl:static"
           onSubmit={(e) => {
             e.preventDefault();
             void submitComment();
           }}
         >
-          <div className="mb-2 flex items-center justify-between gap-2">
-            <span className="inline-flex items-center gap-1.5 rounded-md bg-accent-soft px-2 py-0.5 font-mono text-xs font-medium text-accent">
-              {formatVideoTimestamp(playbackSeconds)}
-            </span>
-            <span className="text-xs text-muted">Saves at this time</span>
-          </div>
           <label htmlFor="comment-body" className="sr-only">
-            Comment
+            Comment at {formatVideoTimestamp(playbackSeconds)}
           </label>
-          <div className="flex gap-2">
-            <textarea
-              id="comment-body"
-              value={draft}
-              onChange={(e) => setDraft(e.target.value)}
-              rows={2}
-              maxLength={2000}
-              placeholder="Leave a note…"
-              disabled={submitting}
-              className="min-h-11 flex-1 resize-none rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted focus:border-accent-muted focus:ring-2 focus:ring-accent-soft disabled:opacity-60"
-            />
-            <button
-              type="submit"
-              disabled={submitting || !draft.trim()}
-              className="inline-flex shrink-0 items-center justify-center gap-1.5 self-end rounded-lg bg-accent px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-accent-hover disabled:opacity-50"
-              aria-label={submitting ? "Saving note" : "Add note"}
-            >
-              <Send className="h-4 w-4" aria-hidden />
-              <span className="hidden sm:inline">{submitting ? "Saving…" : "Add note"}</span>
-            </button>
-          </div>
+          <textarea
+            id="comment-body"
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                void submitComment();
+              }
+            }}
+            rows={2}
+            maxLength={2000}
+            placeholder="Leave a note…"
+            disabled={submitting}
+            className="block w-full resize-none rounded-lg border border-border bg-background px-3 py-2 text-sm leading-relaxed text-foreground placeholder:text-muted focus:border-accent-muted focus:ring-2 focus:ring-accent-soft disabled:cursor-not-allowed disabled:opacity-60"
+          />
+          <button
+            type="submit"
+            disabled={submitting || !draft.trim()}
+            className="mt-2 inline-flex w-full items-center justify-center gap-1.5 rounded-lg bg-accent px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-50"
+            aria-label={submitting ? "Saving note" : "Add note"}
+          >
+            <Send className="h-4 w-4" aria-hidden />
+            {submitting ? "Saving…" : "Add note"}
+          </button>
         </form>
       </aside>
     </div>
