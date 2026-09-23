@@ -110,7 +110,7 @@ type SidebarProps = {
 export function Sidebar({ projectTree, className = "" }: SidebarProps) {
   return (
     <aside
-      className={`sticky top-0 flex h-dvh min-h-dvh w-60 shrink-0 flex-col border-r border-border bg-sidebar ${className}`}
+      className={`sticky top-0 flex h-dvh min-h-dvh w-72 shrink-0 flex-col border-r border-border bg-sidebar ${className}`}
     >
       <Suspense fallback={null}>
         <SidebarContent projectTree={projectTree} />
@@ -203,7 +203,7 @@ export function MobileNav({
             role="dialog"
             aria-modal="true"
             aria-label="Navigation"
-            className="absolute inset-y-0 left-0 flex h-dvh min-h-dvh w-[min(280px,88vw)] flex-col bg-sidebar shadow-2xl shadow-zinc-950/15 motion-safe:animate-[slide-in_200ms_ease-out]"
+            className="absolute inset-y-0 left-0 flex h-dvh min-h-dvh w-[min(320px,88vw)] flex-col bg-sidebar shadow-2xl shadow-zinc-950/15 motion-safe:animate-[slide-in_200ms_ease-out]"
           >
             <Suspense fallback={null}>
               <SidebarContent

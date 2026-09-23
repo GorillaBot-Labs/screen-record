@@ -31,7 +31,6 @@ Native **ScreenCaptureKit** capture on macOS (no ffmpeg), a menu-bar-first recor
 - Desktop runs locally or as a packaged `.app` on **macOS 13+**.
 - Web gallery is open — no login gate; share pages and library are publicly reachable when deployed.
 - Desktop posts to `/api/recordings/ingest` after upload when `WEB_APP_BASE_URL` and `DESKTOP_INGEST_SECRET` are configured.
-- Operators sync catalog drift with `npm run reconcile -w screen-record-web`.
 - GCP credentials: `~/.screen-record/gcp-credentials.json` (desktop) or env on web.
 
 ## Capabilities and Constraints
@@ -66,7 +65,7 @@ Native **ScreenCaptureKit** capture on macOS (no ffmpeg), a menu-bar-first recor
 1. **Link-first sharing** — prefer `/r/id` pages over raw bucket URLs.
 2. **Recorder speed** — minimize steps from stop to copied link.
 3. **Open gallery** — library and share pages are public; access control is not implemented yet.
-4. **Catalog honesty** — Mongo reflects GCS; reconcile when they drift.
+4. **Catalog honesty** — the gallery reflects recordings uploaded and cataloged through the app.
 5. **Native where it matters** — macOS capture quality over cross-platform breadth for now.
 
 ## Accessibility & Inclusion

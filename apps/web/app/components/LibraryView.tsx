@@ -12,7 +12,8 @@ import {
   type LibraryRecording,
   type LibrarySort,
 } from "@/lib/library-types";
-import { Search, Trash2 } from "lucide-react";
+import { EmptyPlaceholder } from "@/app/components/EmptyPlaceholder";
+import { Folder, FolderOpen, Search, SearchX, Trash2, Video } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useCallback, useMemo, useState } from "react";
 import { toast } from "sonner";
@@ -111,17 +112,30 @@ export function LibraryView({
   }, []);
 
   if (recordings.length === 0) {
+    if (folderId) {
+      return (
+        <EmptyPlaceholder
+          icon={Folder}
+          title="Empty folder"
+          description="Move recordings here to organize them."
+        />
+      );
+    }
+    if (projectId) {
+      return (
+        <EmptyPlaceholder
+          icon={FolderOpen}
+          title="Nothing here yet"
+          description="Recordings in this project will show up here."
+        />
+      );
+    }
     return (
-      <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-border bg-surface px-6 py-20 text-center">
-        <p className="text-base font-medium text-foreground">No recordings yet</p>
-        <p className="mx-auto mt-2 max-w-md text-sm text-muted">
-          Record from the desktop app, or run{" "}
-          <code className="rounded bg-white px-1.5 py-0.5 font-mono text-xs text-foreground">
-            npm run reconcile -w screen-record-web
-          </code>{" "}
-          to backfill from your bucket.
-        </p>
-      </div>
+      <EmptyPlaceholder
+        icon={Video}
+        title="No recordings yet"
+        description="Record from the Screen Record app to get started."
+      />
     );
   }
 
@@ -249,10 +263,11 @@ export function LibraryView({
       </div>
 
       {visible.length === 0 ? (
-        <div className="rounded-xl border border-dashed border-border bg-surface px-6 py-16 text-center">
-          <p className="text-sm font-medium text-foreground">No matching recordings</p>
-          <p className="mt-1 text-sm text-muted">Try a different search or filter.</p>
-        </div>
+        <EmptyPlaceholder
+          icon={SearchX}
+          title="No results"
+          description="Try a different search or filter."
+        />
       ) : (
         <ul className="grid list-none grid-cols-1 gap-x-4 gap-y-6 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
           {visible.map((recording) => (

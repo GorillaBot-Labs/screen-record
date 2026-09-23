@@ -30,7 +30,6 @@ npm run db:generate    # Prisma client for the web app
 ## Web app
 
 - **Env:** copy `apps/web/.env.example` to `apps/web/.env` and set `DATABASE_URL`, `GCS_BUCKET`, and GCP credentials (`GCP_SERVICE_ACCOUNT_JSON` or `GOOGLE_APPLICATION_CREDENTIALS`). See the example file for notes.
-- **Backfill catalog from GCS:** `npm run reconcile -w screen-record-web` (same env as above).
 - **Deploy (e.g. Vercel):** set the same env vars on the project; if the Vercel **Root Directory** is `apps/web`, configure it there.
 
 Package names for `-w` are `screen-record` (desktop) and `screen-record-web` (web).

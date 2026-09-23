@@ -1,5 +1,6 @@
 "use client";
 
+import { EmptyPlaceholder } from "@/app/components/EmptyPlaceholder";
 import { formatVideoTimestamp } from "@/lib/video-time";
 import { MessageSquare, Send } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -176,7 +177,14 @@ export function RecordingViewer({
             className={`flex flex-col px-2 py-2 ${comments.length === 0 ? "min-h-full justify-center" : "mt-auto"}`}
           >
             {comments.length === 0 ? (
-              <li className="px-4 py-8 text-center text-sm text-muted">No notes yet</li>
+              <li>
+                <EmptyPlaceholder
+                  compact
+                  icon={MessageSquare}
+                  title="No comments yet"
+                  description="Add a note at the current timestamp."
+                />
+              </li>
             ) : (
               comments.map((comment) => (
                 <li key={comment.id} className="py-0.5">

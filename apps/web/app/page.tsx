@@ -1,4 +1,5 @@
 import { LibraryView } from "@/app/components/LibraryView";
+import { ProjectPageActions } from "@/app/components/ProjectPageActions";
 import type { LibraryRecording } from "@/lib/library-types";
 import { loadProjectTree } from "@/lib/projects";
 import { prisma } from "@/lib/prisma";
@@ -77,11 +78,16 @@ export default async function Home({
 
   return (
     <main className="flex min-h-full flex-1 flex-col bg-background px-4 py-4 md:px-6 md:py-5">
-      <header className="mb-4">
-        <h1 className="text-xl font-semibold tracking-tight text-foreground md:text-2xl">
-          {heading}
-        </h1>
-        <p className="mt-0.5 max-w-xl text-sm text-muted">{subtitle}</p>
+      <header className="mb-4 flex items-start justify-between gap-4">
+        <div className="min-w-0">
+          <h1 className="text-xl font-semibold tracking-tight text-foreground md:text-2xl">
+            {heading}
+          </h1>
+          <p className="mt-0.5 max-w-xl text-sm text-muted">{subtitle}</p>
+        </div>
+        {activeProject ? (
+          <ProjectPageActions projectId={activeProject.id} parentFolderId={folder ?? null} />
+        ) : null}
       </header>
 
       <div className="flex-1">
@@ -92,9 +98,7 @@ export default async function Home({
           >
             <p className="font-medium">Could not load recordings</p>
             <p className="mt-1 text-red-800/90">
-              Check{" "}
-              <code className="rounded bg-red-100 px-1 py-0.5 font-mono text-xs">DATABASE_URL</code>{" "}
-              and that Prisma can reach MongoDB, then refresh.
+              Something went wrong on our end. Refresh the page, or try again in a moment.
             </p>
           </div>
         ) : (

@@ -9,7 +9,6 @@
     "lint": "eslint",
     "postinstall": "prisma generate",
     "db:generate": "prisma generate",
-    "reconcile": "tsx scripts/reconcile-recordings.ts",
     "test": "vitest run",
     "test:unit": "vitest run --project unit",
     "test:integration": "vitest run --project integration",
@@ -35,7 +34,6 @@
     "eslint-config-next": "16.2.4",
     "prisma": "^6.19.0",
     "tailwindcss": "^4",
-    "tsx": "^4.20.6",
     "typescript": "^5",
     "vitest": "^3.2.4"
   }
