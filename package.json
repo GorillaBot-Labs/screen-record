@@ -10,6 +10,12 @@
     "build": "npm run build -w screen-record && npm run build -w screen-record-web",
     "build:desktop": "npm run build -w screen-record",
     "build:web": "npm run build -w screen-record-web",
-    "db:generate": "npm run db:generate -w screen-record-web"
+    "lint": "npm run lint -w screen-record-web",
+    "db:generate": "npm run db:generate -w screen-record-web",
+    "test": "npm run test -w screen-record-web",
+    "test:unit": "npm run test:unit -w screen-record-web",
+    "test:integration": "npm run test:integration -w screen-record-web",
+    "test:db:up": "docker compose -f docker-compose.test.yml up -d --wait",
+    "test:db:down": "docker compose -f docker-compose.test.yml down -v"
   }
 }

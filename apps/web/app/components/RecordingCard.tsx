@@ -1,19 +1,33 @@
 "use client";
 
-import type { Recording } from "@prisma/client";
 import { deleteRecording } from "@/app/actions/delete-recording";
+import { RecordingTags } from "@/app/components/RecordingTags";
 import {
   asDate,
   displayTitle,
   relativeTime,
 } from "@/lib/recording-display";
-import { Link2, Play, Trash2 } from "lucide-react";
+import type { LibraryRecording } from "@/lib/library-types";
+import { formatVideoTimestamp } from "@/lib/video-time";
+import { Link2, MessageSquare, Play, Trash2 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useState } from "react";
 import { toast } from "sonner";
 
-export function RecordingCard({ recording }: { recording: Recording }) {
+type RecordingCardProps = {
+  recording: LibraryRecording;
+  selected?: boolean;
+  onSelectedChange?: (id: string, selected: boolean) => void;
+  onTagClick?: (tag: string) => void;
+};
+
+export function RecordingCard({
+  recording,
+  selected = false,
+  onSelectedChange,
+  onTagClick,
+}: RecordingCardProps) {
   const router = useRouter();
   const [deleting, setDeleting] = useState(false);
 
@@ -66,8 +80,22 @@ export function RecordingCard({ recording }: { recording: Recording }) {
   );
 
   return (
-    <article className="group flex flex-col gap-2.5">
+    <article
+      className={`group flex flex-col gap-2.5 ${selected ? "rounded-xl ring-2 ring-accent ring-offset-2 ring-offset-background" : ""}`}
+    >
       <div className="relative overflow-hidden rounded-xl bg-zinc-950">
+        {onSelectedChange ? (
+          <label className="absolute left-2 top-2 z-10 flex h-8 w-8 cursor-pointer items-center justify-center rounded-lg bg-white/95 shadow-sm">
+            <input
+              type="checkbox"
+              checked={selected}
+              onChange={(e) => onSelectedChange(recording.id, e.target.checked)}
+              className="h-4 w-4 rounded border-border text-accent focus:ring-accent-muted"
+              aria-label={`Select ${name}`}
+            />
+          </label>
+        ) : null}
+
         <Link
           href={sharePagePath}
           className="relative block outline-none"
@@ -93,6 +121,21 @@ export function RecordingCard({ recording }: { recording: Recording }) {
             </span>
           </span>
         </Link>
+
+        <div className="pointer-events-none absolute bottom-2 right-2 flex items-center gap-1.5">
+          {recording.durationSeconds != null && recording.durationSeconds > 0 ? (
+            <span className="rounded-md bg-zinc-950/80 px-1.5 py-0.5 font-mono text-xs font-medium text-white">
+              {formatVideoTimestamp(recording.durationSeconds)}
+            </span>
+          ) : null}
+          {recording.commentCount > 0 ? (
+            <span className="inline-flex items-center gap-0.5 rounded-md bg-zinc-950/80 px-1.5 py-0.5 text-xs font-medium text-white">
+              <MessageSquare className="h-3 w-3 opacity-80" aria-hidden />
+              {recording.commentCount}
+            </span>
+          ) : null}
+        </div>
+
         <div className="absolute right-2 top-2 flex gap-1 opacity-0 transition-opacity duration-200 group-focus-within:opacity-100 group-hover:opacity-100">
           <button
             type="button"
@@ -127,6 +170,12 @@ export function RecordingCard({ recording }: { recording: Recording }) {
         >
           {relativeTime(createdAt)}
         </time>
+        <RecordingTags
+          recordingId={recording.id}
+          tags={recording.tags}
+          compact
+          onTagClick={onTagClick}
+        />
       </div>
     </article>
   );
