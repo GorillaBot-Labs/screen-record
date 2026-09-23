@@ -7,6 +7,32 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+model Project {
+  id         String     @id @default(auto()) @map("_id") @db.ObjectId
+  name       String
+  createdAt  DateTime   @default(now())
+  folders    Folder[]
+  recordings Recording[]
+
+  @@map("projects")
+}
+
+model Folder {
+  id             String     @id @default(auto()) @map("_id") @db.ObjectId
+  name           String
+  projectId      String     @db.ObjectId
+  project        Project    @relation(fields: [projectId], references: [id])
+  parentFolderId String?    @db.ObjectId
+  parent         Folder?    @relation("FolderTree", fields: [parentFolderId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  children       Folder[]   @relation("FolderTree")
+  recordings     Recording[]
+  createdAt      DateTime   @default(now())
+
+  @@index([projectId])
+  @@index([parentFolderId])
+  @@map("folders")
+}
+
 model Recording {
   id              String             @id @default(auto()) @map("_id") @db.ObjectId
   gcsObjectName   String             @unique
@@ -16,18 +42,26 @@ model Recording {
   notes           String?
   tags            String[]           @default([])
   durationSeconds Float?
+  viewCount       Int                @default(0)
+  lastViewedAt    DateTime?
+  projectId       String?            @db.ObjectId
+  project         Project?           @relation(fields: [projectId], references: [id])
+  folderId        String?            @db.ObjectId
+  folder          Folder?            @relation(fields: [folderId], references: [id])
   comments        RecordingComment[]
 
+  @@index([projectId])
+  @@index([folderId])
   @@map("recordings")
 }
 
 model RecordingComment {
-  id               String   @id @default(auto()) @map("_id") @db.ObjectId
-  recordingId      String   @db.ObjectId
+  id               String    @id @default(auto()) @map("_id") @db.ObjectId
+  recordingId      String    @db.ObjectId
   recording        Recording @relation(fields: [recordingId], references: [id])
   body             String
   timestampSeconds Float
-  createdAt        DateTime @default(now())
+  createdAt        DateTime  @default(now())
 
   @@index([recordingId, createdAt])
   @@map("recording_comments")

@@ -19,9 +19,15 @@ import { toast } from "sonner";
 
 type LibraryViewProps = {
   recordings: LibraryRecording[];
+  projectId?: string | null;
+  folderId?: string | null;
 };
 
-export function LibraryView({ recordings }: LibraryViewProps) {
+export function LibraryView({
+  recordings,
+  projectId = null,
+  folderId = null,
+}: LibraryViewProps) {
   const router = useRouter();
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState<LibrarySort>("newest");
@@ -37,9 +43,11 @@ export function LibraryView({ recordings }: LibraryViewProps) {
       query,
       tag: tagFilter,
       hasComments: hasCommentsOnly,
+      projectId,
+      folderId,
     });
     return sortLibraryRecordings(filtered, sort);
-  }, [recordings, query, sort, tagFilter, hasCommentsOnly]);
+  }, [recordings, query, sort, tagFilter, hasCommentsOnly, projectId, folderId]);
 
   const selectedVisibleCount = useMemo(
     () => visible.filter((r) => selected.has(r.id)).length,
@@ -118,9 +126,9 @@ export function LibraryView({ recordings }: LibraryViewProps) {
   }
 
   return (
-    <div className="flex flex-col gap-5">
-      <div className="flex flex-col gap-3">
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
+    <div className="flex flex-col gap-4">
+      <div className="flex flex-col gap-2.5 rounded-xl border border-border bg-background p-3 md:p-3.5">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
           <label className="relative min-w-0 flex-1">
             <Search
               className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted"
@@ -131,14 +139,14 @@ export function LibraryView({ recordings }: LibraryViewProps) {
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder="Search by title, filename, date, tags, or notes…"
-              className="w-full rounded-lg border border-border bg-background py-2.5 pl-10 pr-3 text-sm outline-none focus:border-accent-muted focus:ring-2 focus:ring-accent-soft"
+              className="w-full rounded-lg border border-border bg-background py-2 pl-10 pr-3 text-sm outline-none focus:border-accent-muted focus:ring-2 focus:ring-accent-soft"
             />
           </label>
           <select
             value={sort}
             onChange={(e) => setSort(e.target.value as LibrarySort)}
             aria-label="Sort recordings"
-            className="rounded-lg border border-border bg-background px-3 py-2.5 text-sm outline-none focus:border-accent-muted focus:ring-2 focus:ring-accent-soft"
+            className="rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-accent-muted focus:ring-2 focus:ring-accent-soft sm:w-44"
           >
             {(Object.keys(LIBRARY_SORT_LABELS) as LibrarySort[]).map((key) => (
               <option key={key} value={key}>
@@ -148,37 +156,49 @@ export function LibraryView({ recordings }: LibraryViewProps) {
           </select>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
-          <button
-            type="button"
-            onClick={() => setTagFilter(null)}
-            className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
-              tagFilter === null
-                ? "bg-accent-soft text-accent"
-                : "bg-surface text-muted hover:text-foreground"
-            }`}
-          >
-            All tags
-          </button>
-          {allTags.map((tag) => (
+        {allTags.length > 0 || hasCommentsOnly ? (
+          <div className="flex flex-wrap items-center gap-1.5 border-t border-border pt-2.5">
             <button
-              key={tag}
               type="button"
-              onClick={() =>
-                setTagFilter((current) =>
-                  current?.toLowerCase() === tag.toLowerCase() ? null : tag,
-                )
-              }
-              className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
-                tagFilter?.toLowerCase() === tag.toLowerCase()
+              onClick={() => setTagFilter(null)}
+              className={`rounded-full px-2.5 py-0.5 text-xs font-medium transition-colors ${
+                tagFilter === null
                   ? "bg-accent-soft text-accent"
                   : "bg-surface text-muted hover:text-foreground"
               }`}
             >
-              {tag}
+              All tags
             </button>
-          ))}
-          <label className="ml-auto inline-flex items-center gap-2 text-sm text-muted">
+            {allTags.map((tag) => (
+              <button
+                key={tag}
+                type="button"
+                onClick={() =>
+                  setTagFilter((current) =>
+                    current?.toLowerCase() === tag.toLowerCase() ? null : tag,
+                  )
+                }
+                className={`rounded-full px-2.5 py-0.5 text-xs font-medium transition-colors ${
+                  tagFilter?.toLowerCase() === tag.toLowerCase()
+                    ? "bg-accent-soft text-accent"
+                    : "bg-surface text-muted hover:text-foreground"
+                }`}
+              >
+                {tag}
+              </button>
+            ))}
+            <label className="ml-auto inline-flex items-center gap-1.5 text-xs text-muted">
+              <input
+                type="checkbox"
+                checked={hasCommentsOnly}
+                onChange={(e) => setHasCommentsOnly(e.target.checked)}
+                className="rounded border-border text-accent focus:ring-accent-muted"
+              />
+              Has comments
+            </label>
+          </div>
+        ) : (
+          <label className="inline-flex items-center gap-1.5 border-t border-border pt-2.5 text-xs text-muted">
             <input
               type="checkbox"
               checked={hasCommentsOnly}
@@ -187,15 +207,15 @@ export function LibraryView({ recordings }: LibraryViewProps) {
             />
             Has comments
           </label>
-        </div>
+        )}
       </div>
 
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <p className="text-sm text-muted">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="text-xs text-muted">
           {visible.length} of {recordings.length} video{recordings.length === 1 ? "" : "s"}
           {selected.size > 0 ? ` · ${selected.size} selected` : ""}
         </p>
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center gap-1.5">
           {visible.length > 0 ? (
             <button
               type="button"
@@ -234,7 +254,7 @@ export function LibraryView({ recordings }: LibraryViewProps) {
           <p className="mt-1 text-sm text-muted">Try a different search or filter.</p>
         </div>
       ) : (
-        <ul className="grid list-none grid-cols-1 gap-x-5 gap-y-8 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+        <ul className="grid list-none grid-cols-1 gap-x-4 gap-y-6 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
           {visible.map((recording) => (
             <li key={recording.id}>
               <RecordingCard

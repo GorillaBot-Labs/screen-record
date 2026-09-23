@@ -18,7 +18,8 @@ import {
 import { destroyCountdownOverlay, registerCountdownOverlayIpc } from './countdown-overlay'
 import { destroyRecordingOverlay, openRecordingOverlay, registerRecordingOverlayIpc } from './recording-overlay'
 import { uploadRecordingToGcs } from './gcs-upload'
-import { readRecentRecordingUrls, recordSuccessfulUploadUrl } from './recent-recordings'
+import { recordingElapsedSeconds } from './recording-duration'
+import { readRecentRecordings, recordSuccessfulUpload } from './recent-recordings'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -73,6 +74,7 @@ let tray: Tray | null = null
 
 let recordingStartedAtMs: number | null = null
 let trayRecordingTick: ReturnType<typeof setInterval> | null = null
+let lastShareUrl: string | null = null
 
 /** Default `displayIndex:audioIndex` when the renderer omits `captureInput`. */
 const DEFAULT_CAPTURE_INPUT = '0:0'
@@ -291,7 +293,7 @@ function defaultOutputPath(): string {
 }
 
 type WebIngestResult =
-  | { ok: true; detailUrl: string }
+  | { ok: true; detailUrl: string; title?: string }
   | { ok: false; reason: 'not_configured' }
   | { ok: false; reason: 'request_failed'; error: string }
 
@@ -311,7 +313,11 @@ function notifyRecordingReady(detailUrl: string | undefined): void {
 }
 
 /** Tell the local web app to upsert the Mongo row; secret must match web `DESKTOP_INGEST_SECRET`. */
-async function ingestRecordingToWeb(gcsObjectName: string, publicUrl: string): Promise<WebIngestResult> {
+async function ingestRecordingToWeb(
+  gcsObjectName: string,
+  publicUrl: string,
+  durationSeconds?: number,
+): Promise<WebIngestResult> {
   const base = process.env.WEB_APP_BASE_URL?.trim()?.replace(/\/+$/, '')
   const secret = process.env.DESKTOP_INGEST_SECRET?.trim()
   if (!base || !secret) return { ok: false, reason: 'not_configured' }
@@ -319,7 +325,11 @@ async function ingestRecordingToWeb(gcsObjectName: string, publicUrl: string): P
     const res = await fetch(`${base}/api/recordings/ingest`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', 'x-desktop-ingest-secret': secret },
-      body: JSON.stringify({ gcsObjectName, publicUrl }),
+      body: JSON.stringify({
+        gcsObjectName,
+        publicUrl,
+        ...(durationSeconds != null ? { durationSeconds } : {}),
+      }),
     })
     if (!res.ok) {
       let error = `HTTP ${res.status}`
@@ -331,12 +341,13 @@ async function ingestRecordingToWeb(gcsObjectName: string, publicUrl: string): P
       }
       return { ok: false, reason: 'request_failed', error }
     }
-    const j = (await res.json()) as { ok?: unknown; detailUrl?: unknown }
+    const j = (await res.json()) as { ok?: unknown; detailUrl?: unknown; title?: unknown }
     const detailUrl = typeof j.detailUrl === 'string' ? j.detailUrl.trim() : ''
     if (!detailUrl) {
       return { ok: false, reason: 'request_failed', error: 'Web app did not return a share link.' }
     }
-    return { ok: true, detailUrl }
+    const title = typeof j.title === 'string' ? j.title.trim() : undefined
+    return { ok: true, detailUrl, ...(title ? { title } : {}) }
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e)
     return { ok: false, reason: 'request_failed', error: msg }
@@ -482,6 +493,24 @@ function updateTrayMenu() {
       enabled: recording,
       click: () => {
         void cancelRecordingChild()
+      },
+    },
+    { type: 'separator' },
+    {
+      label: 'Open library',
+      enabled: Boolean(process.env.WEB_APP_BASE_URL?.trim()),
+      click: () => {
+        const base = process.env.WEB_APP_BASE_URL?.trim()?.replace(/\/+$/, '')
+        if (!base) return
+        void shell.openExternal(`${base}/`)
+      },
+    },
+    {
+      label: 'Copy last share link',
+      enabled: Boolean(lastShareUrl),
+      click: () => {
+        if (!lastShareUrl) return
+        clipboard.writeText(lastShareUrl)
       },
     },
     { type: 'separator' },
@@ -774,6 +803,16 @@ ipcMain.handle(
         recordingOutputPath = null
       }
       recordingWasCancelled = false
+      const endedAtMs = Date.now()
+      const durationSeconds =
+        recordingStartedAtMs != null
+          ? recordingElapsedSeconds({
+              startedAtMs: recordingStartedAtMs,
+              endedAtMs,
+              pausedTotalMs: recordingPausedTotalMs,
+              pausedAtMs: recordingPausedAtMs,
+            })
+          : undefined
       stopTrayRecordingPresentation()
       destroyRecordingOverlay()
       forwardRecordingEnded(sender, { code, signal, ...(wasCancelled ? { cancelled: true } : {}) })
@@ -816,16 +855,28 @@ ipcMain.handle(
         let ingestError: string | undefined
         if (result.ok) {
           const gcsUrl = result.url
-          const ingest = await ingestRecordingToWeb(result.objectName, gcsUrl)
+          const ingest = await ingestRecordingToWeb(
+            result.objectName,
+            gcsUrl,
+            durationSeconds,
+          )
+          let ingestTitle: string | undefined
           if (ingest.ok) {
             detailUrl = ingest.detailUrl
+            ingestTitle = ingest.title
           } else if (ingest.reason === 'request_failed') {
             ingestError = ingest.error
           }
 
           const shareUrl = detailUrl ?? gcsUrl
-          recordSuccessfulUploadUrl(shareUrl)
+          lastShareUrl = shareUrl
+          recordSuccessfulUpload({
+            url: shareUrl,
+            title: ingestTitle,
+            recordedAt: new Date().toISOString(),
+          })
           clipboard.writeText(shareUrl)
+          updateTrayMenu()
           notifyRecordingReady(detailUrl)
           if (detailUrl) {
             try {
@@ -911,8 +962,8 @@ ipcMain.handle('recording:restart', async (): Promise<{ ok: true } | { ok: false
   return res
 })
 
-ipcMain.handle('recordings:listRecent', (): { urls: string[] } => {
-  return { urls: readRecentRecordingUrls() }
+ipcMain.handle('recordings:listRecent', () => {
+  return { entries: readRecentRecordings() }
 })
 
 ipcMain.handle(

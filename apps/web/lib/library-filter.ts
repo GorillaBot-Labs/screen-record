@@ -19,11 +19,18 @@ export function filterLibraryRecordings(
     query: string;
     tag: string | null;
     hasComments: boolean;
+    projectId?: string | null;
+    folderId?: string | null;
   },
 ): LibraryRecording[] {
   const q = options.query.trim().toLowerCase();
 
   return recordings.filter((recording) => {
+    if (options.folderId) {
+      if (recording.folderId !== options.folderId) return false;
+    } else if (options.projectId) {
+      if (recording.projectId !== options.projectId) return false;
+    }
     if (options.hasComments && recording.commentCount === 0) return false;
     if (options.tag && !recording.tags.some((t) => t.toLowerCase() === options.tag!.toLowerCase())) {
       return false;

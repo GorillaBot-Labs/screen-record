@@ -8,6 +8,8 @@ export type LibraryRecording = {
   tags: string[];
   durationSeconds: number | null;
   commentCount: number;
+  projectId: string | null;
+  folderId: string | null;
 };
 
 export type LibrarySort =

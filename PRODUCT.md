@@ -38,11 +38,17 @@ Native **ScreenCaptureKit** capture on macOS (no ffmpeg), a menu-bar-first recor
 
 **Desktop:** display/mic selection, countdown, tray control, pause/resume/stop, H.264 MP4 via VideoToolbox, GCS upload, clipboard + optional browser open for share URL.
 
-**Web gallery:** grid library, public detail pages with embedded player, timestamped anonymous comments, copy share link, delete (GCS + Mongo), no per-user accounts or RBAC.
+**Web gallery:** grid library with search/sort/tags, projects and folders, public detail pages with embedded player, editable title/description, viewer analytics, download + embed, timestamped anonymous comments, copy share link, delete (GCS + Mongo), no per-user accounts or RBAC.
 
-**Data:** Mongo `recordings` collection indexes GCS objects; GCS is source of truth for bytes. Fields: `id`, `gcsObjectName`, `publicUrl`, `createdAt`, `title`, `notes`.
+**Data:** Mongo catalogs GCS objects. Recording fields include `title`, `notes`, `tags`, `durationSeconds`, `viewCount`, `lastViewedAt`, optional `projectId` / `folderId`. Projects contain folders (nested) and recordings.
 
-**Constraints:** macOS-only capture today; public GCS object URLs; no in-app title/notes editing on web yet.
+**Constraints:** macOS-only capture today; public GCS object URLs.
+
+## Deferred (documented, not built)
+
+- **Video thumbnails** — poster frames for library cards and richer link previews without generating OG images from title text alone.
+- **Transcripts / captions** — speech-to-text for search and player captions.
+- **Basic trim** — set in/out points on web without re-recording.
 
 ## Brand Commitments
 

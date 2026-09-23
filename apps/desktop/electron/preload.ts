@@ -50,7 +50,13 @@ export type OpenCountdownOverlayResult = { ok: true } | { ok: false; error: stri
 
 export type OpenRecordingOverlayResult = { ok: true } | { ok: false; error: string }
 
-export type ListRecentRecordingsResult = { urls: string[] }
+export type RecentRecordingEntry = {
+  url: string
+  title: string
+  recordedAt: string
+}
+
+export type ListRecentRecordingsResult = { entries: RecentRecordingEntry[] }
 
 export type OpenExternalUrlResult = { ok: true } | { ok: false; error: string }
 

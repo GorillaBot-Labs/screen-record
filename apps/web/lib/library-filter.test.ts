@@ -17,6 +17,8 @@ function recording(overrides: Partial<LibraryRecording> = {}): LibraryRecording 
     tags: ["product"],
     durationSeconds: 120,
     commentCount: 2,
+    projectId: null,
+    folderId: null,
     ...overrides,
   };
 }

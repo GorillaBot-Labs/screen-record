@@ -51,9 +51,14 @@ export async function POST(request: Request) {
       publicUrl,
       ...(durationSeconds != null ? { durationSeconds } : {}),
     },
-    select: { id: true },
+    select: { id: true, title: true },
   });
 
   const detailUrl = `${new URL(request.url).origin}/r/${recording.id}`;
-  return NextResponse.json({ ok: true, id: recording.id, detailUrl });
+  return NextResponse.json({
+    ok: true,
+    id: recording.id,
+    detailUrl,
+    title: recording.title,
+  });
 }

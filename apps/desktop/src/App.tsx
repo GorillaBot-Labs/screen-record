@@ -11,6 +11,7 @@ import {
 
 import type {
   CaptureDevice,
+  RecentRecordingEntry,
 } from "../electron/preload";
 
 const VIDEO_INDEX_STORAGE_KEY = "screen-record:avVideoIndex";
@@ -170,7 +171,7 @@ export default function App() {
     [],
   );
   /** Last up to five successful upload URLs (persisted under ~/.screen-record). */
-  const [recentUrls, setRecentUrls] = useState<string[]>([]);
+  const [recentEntries, setRecentEntries] = useState<RecentRecordingEntry[]>([]);
   /** 3 → 2 → 1 fullscreen overlay before recording; `null` when hidden. */
   const [countdown, setCountdown] = useState<number | null>(null);
   /** Blocks overlapping start/countdown; avoids depending on `countdown` in `handleStart` deps (tray listener stability). */
@@ -251,9 +252,9 @@ export default function App() {
   const refreshRecentRecordings = useCallback(async () => {
     const api = window.electronAPI;
     if (!api) return;
-    const { urls } = await api.listRecentRecordings();
-    pushDiagnosticsEvent({ kind: "recent.refresh", data: { count: urls.length } });
-    setRecentUrls(urls);
+    const { entries } = await api.listRecentRecordings();
+    pushDiagnosticsEvent({ kind: "recent.refresh", data: { count: entries.length } });
+    setRecentEntries(entries);
   }, [pushDiagnosticsEvent]);
 
   useEffect(() => {
@@ -903,7 +904,7 @@ export default function App() {
               <summary id="recent-heading">
                 <span>Recent uploads</span>
                 <span className="app-details-meta">
-                  {recentUrls.length > 0 ? `${recentUrls.length}` : ""}
+                  {recentEntries.length > 0 ? `${recentEntries.length}` : ""}
                 </span>
               </summary>
               <div className="app-details-body">
@@ -922,25 +923,26 @@ export default function App() {
                   </button>
                 </div>
 
-                {recentUrls.length === 0 ? (
+                {recentEntries.length === 0 ? (
                   <p className="hint hint-flush">
                     Finish a recording to build the list.
                   </p>
                 ) : (
                   <ul className="recent-list" role="list">
-                    {recentUrls.map((url) => (
-                      <li key={url} className="recent-item">
+                    {recentEntries.map((entry) => (
+                      <li key={entry.url} className="recent-item">
                         <div className="recent-item-header">
                           <span className="recent-item-title">
-                            {isWebShareUrl(url)
-                              ? "Web recording"
-                              : recordingTitleFromUrl(url)}
+                            {entry.title ||
+                              (isWebShareUrl(entry.url)
+                                ? "Web recording"
+                                : recordingTitleFromUrl(entry.url))}
                           </span>
                           <div className="recent-item-actions">
                             <button
                               type="button"
                               className="btn btn-outline btn-compact"
-                              onClick={() => void handleCopyRecordingUrl(url)}
+                              onClick={() => void handleCopyRecordingUrl(entry.url)}
                             >
                               <Copy size={15} aria-hidden />
                               <span>Copy</span>
@@ -948,15 +950,15 @@ export default function App() {
                             <button
                               type="button"
                               className="btn btn-outline btn-compact"
-                              onClick={() => void handleOpenRecordingUrl(url)}
+                              onClick={() => void handleOpenRecordingUrl(entry.url)}
                             >
                               <ExternalLink size={15} aria-hidden />
                               <span>Open</span>
                             </button>
                           </div>
                         </div>
-                        <code className="recent-item-url" title={url}>
-                          {url}
+                        <code className="recent-item-url" title={entry.url}>
+                          {entry.url}
                         </code>
                       </li>
                     ))}

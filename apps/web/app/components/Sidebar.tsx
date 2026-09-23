@@ -1,11 +1,14 @@
 "use client";
 
+import { ProjectNav } from "@/app/components/ProjectNav";
+import type { ProjectTree } from "@/lib/projects";
 import { Clapperboard, LayoutGrid, X } from "lucide-react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
-import { useCallback, useEffect, useId, useRef } from "react";
+import { usePathname, useSearchParams } from "next/navigation";
+import { Suspense, useCallback, useEffect, useId, useRef } from "react";
 
 type SidebarContentProps = {
+  projectTree: ProjectTree[];
   onNavigate?: () => void;
   showClose?: boolean;
   onClose?: () => void;
@@ -44,12 +47,14 @@ function NavLink({
 }
 
 export function SidebarContent({
+  projectTree,
   onNavigate,
   showClose = false,
   onClose,
 }: SidebarContentProps) {
   const pathname = usePathname();
-  const onGalleryHome = pathname === "/";
+  const searchParams = useSearchParams();
+  const onGalleryHome = pathname === "/" && !searchParams.get("project");
 
   return (
     <div className="flex h-full min-h-0 flex-1 flex-col">
@@ -89,32 +94,44 @@ export function SidebarContent({
           label="Library"
           onNavigate={onNavigate}
         />
+        <Suspense fallback={null}>
+          <ProjectNav projectTree={projectTree} onNavigate={onNavigate} />
+        </Suspense>
       </nav>
     </div>
   );
 }
 
 type SidebarProps = {
+  projectTree: ProjectTree[];
   className?: string;
 };
 
-export function Sidebar({ className = "" }: SidebarProps) {
+export function Sidebar({ projectTree, className = "" }: SidebarProps) {
   return (
     <aside
       className={`sticky top-0 flex h-dvh min-h-dvh w-60 shrink-0 flex-col border-r border-border bg-sidebar ${className}`}
     >
-      <SidebarContent />
+      <Suspense fallback={null}>
+        <SidebarContent projectTree={projectTree} />
+      </Suspense>
     </aside>
   );
 }
 
 type MobileNavProps = {
+  projectTree: ProjectTree[];
   open: boolean;
   onOpen: () => void;
   onClose: () => void;
 };
 
-export function MobileNav({ open, onOpen, onClose }: MobileNavProps) {
+export function MobileNav({
+  projectTree,
+  open,
+  onOpen,
+  onClose,
+}: MobileNavProps) {
   const drawerId = useId();
 
   const handleNavigate = useCallback(() => {
@@ -188,11 +205,14 @@ export function MobileNav({ open, onOpen, onClose }: MobileNavProps) {
             aria-label="Navigation"
             className="absolute inset-y-0 left-0 flex h-dvh min-h-dvh w-[min(280px,88vw)] flex-col bg-sidebar shadow-2xl shadow-zinc-950/15 motion-safe:animate-[slide-in_200ms_ease-out]"
           >
-            <SidebarContent
-              onNavigate={handleNavigate}
-              showClose
-              onClose={onClose}
-            />
+            <Suspense fallback={null}>
+              <SidebarContent
+                projectTree={projectTree}
+                onNavigate={handleNavigate}
+                showClose
+                onClose={onClose}
+              />
+            </Suspense>
           </aside>
         </div>
       ) : null}
