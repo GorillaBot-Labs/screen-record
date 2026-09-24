@@ -78,6 +78,48 @@ enum RecordError: Error, CustomStringConvertible {
   }
 }
 
+private func floor16(_ x: Int) -> Int { max(16, (x / 16) * 16) }
+
+private struct CaptureGeometry {
+  let sourceRect: CGRect
+  let width: Int
+  let height: Int
+  let pointPixelScale: CGFloat
+}
+
+/// ScreenCaptureKit expects `sourceRect` in display-local points and output `width`/`height` in pixels.
+private func displayPixelScale(_ display: SCDisplay, filter: SCContentFilter) -> CGFloat {
+  if #available(macOS 14.0, *) {
+    let scale = CGFloat(filter.pointPixelScale)
+    if scale > 0 { return scale }
+  }
+  let pixelsWide = CGFloat(CGDisplayPixelsWide(display.displayID))
+  let pointsWide = CGFloat(max(1, display.width))
+  return max(1, pixelsWide / pointsWide)
+}
+
+private func captureGeometry(display: SCDisplay, filter: SCContentFilter) -> CaptureGeometry {
+  let logical = CGSize(width: display.width, height: display.height)
+  let scale = displayPixelScale(display, filter: filter)
+  let pixelW = floor16(Int((logical.width * scale).rounded()))
+  let pixelH = floor16(Int((logical.height * scale).rounded()))
+  return CaptureGeometry(
+    sourceRect: CGRect(origin: .zero, size: logical),
+    width: pixelW,
+    height: pixelH,
+    pointPixelScale: scale,
+  )
+}
+
+private func applyCaptureGeometry(_ cfg: SCStreamConfiguration, _ geom: CaptureGeometry) {
+  cfg.sourceRect = geom.sourceRect
+  cfg.width = geom.width
+  cfg.height = geom.height
+  if #available(macOS 14.0, *) {
+    cfg.captureResolution = .best
+  }
+}
+
 private func cameraOrientation(from sampleBuffer: CMSampleBuffer) -> CGImagePropertyOrientation {
   if let raw = CMGetAttachment(sampleBuffer, key: kCGImagePropertyOrientation, attachmentModeOut: nil) as? UInt32,
      let orientation = CGImagePropertyOrientation(rawValue: raw)
@@ -168,11 +210,6 @@ final class Recorder: @unchecked Sendable {
     self.excludePid = excludePid
   }
 
-  private static func encodeDimensions(_ display: SCDisplay) -> (Int, Int) {
-    func floor16(_ x: Int) -> Int { max(16, (x / 16) * 16) }
-    return (floor16(display.width), floor16(display.height))
-  }
-
   static func loadDevices(
     displayIndex: Int,
     audioIndex: Int,
@@ -230,15 +267,24 @@ final class Recorder: @unchecked Sendable {
 
     assetWriter = try AVAssetWriter(url: outputURL, fileType: .mp4)
 
-    let (w, h) = Self.encodeDimensions(display)
+    let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
+    var excludeApps: [SCRunningApplication] = []
+    if let excludePid {
+      excludeApps = content.applications.filter { $0.processID == excludePid }
+      if !excludeApps.isEmpty {
+        fputs("sck-record: excluding recorder UI (pid \(excludePid))\n", stderr)
+      }
+    }
+    let filter = SCContentFilter(display: display, excludingApplications: excludeApps, exceptingWindows: [])
+    let geom = captureGeometry(display: display, filter: filter)
+    let w = geom.width
+    let h = geom.height
     encodeWidth = w
     encodeHeight = h
-    if display.width != w || display.height != h {
-      fputs(
-        "sck-record: capture \(w)x\(h) (aligned from display \(display.width)x\(display.height)) for H.264\n",
-        stderr,
-      )
-    }
+    fputs(
+      "sck-record: capture \(w)x\(h) px (display \(display.width)x\(display.height) pt, scale \(geom.pointPixelScale))\n",
+      stderr,
+    )
     let videoSettings: [String: Any] = [
       AVVideoCodecKey: AVVideoCodecType.h264,
       AVVideoWidthKey: w,
@@ -270,18 +316,8 @@ final class Recorder: @unchecked Sendable {
       throw RecordError.writer(assetWriter.error?.localizedDescription ?? "startWriting failed")
     }
 
-    let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
-    var excludeApps: [SCRunningApplication] = []
-    if let excludePid {
-      excludeApps = content.applications.filter { $0.processID == excludePid }
-      if !excludeApps.isEmpty {
-        fputs("sck-record: excluding recorder UI (pid \(excludePid))\n", stderr)
-      }
-    }
-    let filter = SCContentFilter(display: display, excludingApplications: excludeApps, exceptingWindows: [])
     let cfg = SCStreamConfiguration()
-    cfg.width = w
-    cfg.height = h
+    applyCaptureGeometry(cfg, geom)
     cfg.minimumFrameInterval = CMTime(value: 1, timescale: 30)
     cfg.pixelFormat = kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange
     cfg.showsCursor = true
@@ -391,8 +427,10 @@ final class Recorder: @unchecked Sendable {
     cameraLock.unlock()
     guard let camBuf else { return }
 
-    let margin: CGFloat = 20
-    let pipSize = min(max(CGFloat(w) * 0.18, 120), 220)
+    let marginPoints: CGFloat = 20
+    let pointScale = CGFloat(w) / CGFloat(max(1, display.width))
+    let margin = marginPoints * pointScale
+    let pipSize = min(max(CGFloat(w) * 0.18, 120 * pointScale), 220 * pointScale)
 
     var camImage = CIImage(cvPixelBuffer: camBuf).oriented(forExifOrientation: Int32(orientation.rawValue))
     camImage = mirrorHorizontally(camImage)
@@ -499,8 +537,9 @@ private func printDeviceListJSON() async throws {
     let cameras: [Entry]
   }
   let video = displays.enumerated().map { i, d -> Entry in
-    let ew = max(16, (d.width / 16) * 16)
-    let eh = max(16, (d.height / 16) * 16)
+    let scale = max(1, Int(CGDisplayPixelsWide(d.displayID)) / max(1, d.width))
+    let ew = floor16(d.width * scale)
+    let eh = floor16(d.height * scale)
     let builtIn = CGDisplayIsBuiltin(d.displayID) != 0
     let kind = builtIn ? "Built-in Display" : "External Display"
     return Entry(index: i, displayId: d.displayID, name: "\(kind) (\(ew)×\(eh))")
@@ -573,21 +612,22 @@ private func printScreenshotJSON(displayIndex: Int, maxWidth: Int?) async throws
   }
   let display = displays[displayIndex]
 
-  let targetW: Int
-  let targetH: Int
-  if let mw = maxWidth, mw > 0, display.width > mw {
-    let scale = Double(mw) / Double(max(1, display.width))
-    targetW = max(16, Int(Double(display.width) * scale))
-    targetH = max(16, Int(Double(display.height) * scale))
-  } else {
-    targetW = display.width
-    targetH = display.height
-  }
-
   let filter = SCContentFilter(display: display, excludingApplications: [], exceptingWindows: [])
+  var geom = captureGeometry(display: display, filter: filter)
+  if let mw = maxWidth, mw > 0, display.width > mw {
+    let ratio = Double(mw) / Double(max(1, display.width))
+    geom = CaptureGeometry(
+      sourceRect: geom.sourceRect,
+      width: max(16, Int((Double(geom.width) * ratio).rounded())),
+      height: max(16, Int((Double(geom.height) * ratio).rounded())),
+      pointPixelScale: geom.pointPixelScale,
+    )
+  }
+  let targetW = geom.width
+  let targetH = geom.height
+
   let cfg = SCStreamConfiguration()
-  cfg.width = targetW
-  cfg.height = targetH
+  applyCaptureGeometry(cfg, geom)
   cfg.minimumFrameInterval = CMTime(value: 1, timescale: 5)
   cfg.pixelFormat = kCVPixelFormatType_32BGRA
   cfg.showsCursor = true

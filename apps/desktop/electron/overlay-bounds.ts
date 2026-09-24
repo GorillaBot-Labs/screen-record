@@ -4,8 +4,6 @@ export type WorkArea = { x: number; y: number; width: number; height: number }
 export type CameraOverlaySize = 'small' | 'large'
 
 export const CAMERA_OVERLAY_MARGIN = 20
-/** Transparent strip below the circle for the size toggle (must match CSS). */
-export const CAMERA_OVERLAY_BOTTOM_OVERHANG = 38
 export const CAMERA_OVERLAY_DIMENSIONS: Record<CameraOverlaySize, number> = {
   small: 180,
   large: 270,
@@ -21,7 +19,7 @@ export function cameraOverlayLayout(size: CameraOverlaySize): {
   circle: number
 } {
   const circle = CAMERA_OVERLAY_DIMENSIONS[size]
-  return { width: circle, height: circle + CAMERA_OVERLAY_BOTTOM_OVERHANG, circle }
+  return { width: circle, height: circle, circle }
 }
 
 export function clampBoundsToWorkArea(

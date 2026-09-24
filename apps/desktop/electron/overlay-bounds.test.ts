@@ -9,9 +9,9 @@ import {
 const workArea = { x: 100, y: 50, width: 1800, height: 1000 }
 
 describe('cameraOverlayLayout', () => {
-  it('includes bottom overhang for the size toggle', () => {
-    expect(cameraOverlayLayout('small')).toEqual({ width: 180, height: 218, circle: 180 })
-    expect(cameraOverlayLayout('large')).toEqual({ width: 270, height: 308, circle: 270 })
+  it('uses a square window matching the circle diameter', () => {
+    expect(cameraOverlayLayout('small')).toEqual({ width: 180, height: 180, circle: 180 })
+    expect(cameraOverlayLayout('large')).toEqual({ width: 270, height: 270, circle: 270 })
   })
 })
 
@@ -19,9 +19,9 @@ describe('cameraOverlayDefaultBounds', () => {
   it('anchors the overlay to the bottom-left of the work area', () => {
     expect(cameraOverlayDefaultBounds('small', workArea)).toEqual({
       x: 120,
-      y: 812,
+      y: 850,
       width: 180,
-      height: 218,
+      height: 180,
     })
   })
 })
