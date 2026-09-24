@@ -2,7 +2,8 @@
 
 import { ProjectNav } from "@/app/components/ProjectNav";
 import type { ProjectTree } from "@/lib/projects";
-import { Clapperboard, LayoutGrid, X } from "lucide-react";
+import { LogoMark } from "@/app/components/LogoMark";
+import { LayoutGrid, X } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 import { Suspense, useCallback, useEffect, useId, useRef } from "react";
@@ -64,12 +65,10 @@ export function SidebarContent({
           onClick={onNavigate}
           className="flex min-w-0 flex-1 items-center gap-2.5"
         >
-          <span
-            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-accent text-white shadow-sm shadow-accent/25"
-            aria-hidden
-          >
-            <Clapperboard className="h-4 w-4" strokeWidth={2.25} />
-          </span>
+          <LogoMark
+            className="h-8 w-8 shrink-0 rounded-lg shadow-sm shadow-accent/25"
+            size={32}
+          />
           <span className="truncate text-sm font-semibold tracking-tight text-foreground">
             Recordings
           </span>
@@ -180,12 +179,7 @@ export function MobileNav({
           <LayoutGrid className="h-5 w-5" aria-hidden />
         </button>
         <Link href="/" className="flex min-w-0 flex-1 items-center gap-2">
-          <span
-            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-accent text-white"
-            aria-hidden
-          >
-            <Clapperboard className="h-4 w-4" strokeWidth={2.25} />
-          </span>
+          <LogoMark className="h-8 w-8 shrink-0 rounded-lg" size={32} />
           <span className="truncate text-sm font-semibold">Recordings</span>
         </Link>
       </header>

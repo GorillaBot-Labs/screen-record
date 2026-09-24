@@ -1,6 +1,7 @@
 "use client";
 
 import { deleteRecording } from "@/app/actions/delete-recording";
+import { ConfirmDialog } from "@/app/components/ConfirmDialog";
 import { RecordingTags } from "@/app/components/RecordingTags";
 import {
   asDate,
@@ -33,6 +34,7 @@ export function RecordingCard({
   draggable = false,
 }: RecordingCardProps) {
   const router = useRouter();
+  const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
     id: recording.id,
@@ -73,34 +75,29 @@ export function RecordingCard({
     [sharePagePath],
   );
 
-  const handleDelete = useCallback(
-    async (e: React.MouseEvent) => {
-      e.preventDefault();
-      e.stopPropagation();
-      if (
-        !window.confirm(
-          `Delete "${name}"? This removes the file from cloud storage and the catalog. You cannot undo this.`,
-        )
-      ) {
+  const openDeleteDialog = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDeleteOpen(true);
+  }, []);
+
+  const handleDeleteConfirm = useCallback(async () => {
+    setDeleting(true);
+    try {
+      const result = await deleteRecording(recording.id);
+      if (!result.ok) {
+        toast.error(result.error);
         return;
       }
-      setDeleting(true);
-      try {
-        const result = await deleteRecording(recording.id);
-        if (!result.ok) {
-          toast.error(result.error);
-          return;
-        }
-        toast.success("Recording deleted");
-        router.refresh();
-      } catch {
-        toast.error("Delete failed");
-      } finally {
-        setDeleting(false);
-      }
-    },
-    [name, recording.id, router],
-  );
+      toast.success("Recording deleted");
+      setDeleteOpen(false);
+      router.refresh();
+    } catch {
+      toast.error("Delete failed");
+    } finally {
+      setDeleting(false);
+    }
+  }, [recording.id, router]);
 
   return (
     <article
@@ -180,7 +177,7 @@ export function RecordingCard({
           </button>
           <button
             type="button"
-            onClick={handleDelete}
+            onClick={openDeleteDialog}
             disabled={deleting}
             className="flex h-8 w-8 items-center justify-center rounded-lg bg-white/95 text-danger shadow-sm transition-colors hover:bg-white disabled:opacity-50"
             aria-label="Delete recording"
@@ -189,6 +186,16 @@ export function RecordingCard({
           </button>
         </div>
       </div>
+
+      <ConfirmDialog
+        open={deleteOpen}
+        title="Delete recording?"
+        description="This removes the file from cloud storage and the catalog. You cannot undo this."
+        detail={name}
+        loading={deleting}
+        onConfirm={() => void handleDeleteConfirm()}
+        onCancel={() => setDeleteOpen(false)}
+      />
 
       <div className="min-w-0 px-0.5">
         <h2 className="truncate text-sm font-medium text-foreground" title={name}>

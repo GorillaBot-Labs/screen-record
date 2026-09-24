@@ -1,33 +1,37 @@
-import { describe, expect, it } from "vitest";
-import { buildRecentEntries } from "./recent-recordings";
+import { existsSync, unlinkSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
+import path from "node:path";
+import { afterEach, describe, expect, it } from "vitest";
+import { purgeLegacyRecentRecordingStore } from "./recent-recordings";
 
-describe("buildRecentEntries", () => {
-  it("keeps the most recent uploads with titles and dedupes by url", () => {
-    const existing = [
-      {
-        url: "https://example.com/r/old",
-        title: "Old recording",
-        recordedAt: "2024-06-14T12:00:00.000Z",
-      },
-    ];
+const storePath = path.join(homedir(), ".screen-record", "recent-recordings.json");
 
-    expect(
-      buildRecentEntries(existing, {
-        url: "https://example.com/r/abc",
-        title: "Quarterly review",
-        recordedAt: "2024-06-15T12:00:00.000Z",
+describe("purgeLegacyRecentRecordingStore", () => {
+  afterEach(() => {
+    try {
+      if (existsSync(storePath)) unlinkSync(storePath);
+    } catch {
+      /* ignore */
+    }
+  });
+
+  it("removes the legacy recent uploads file", () => {
+    writeFileSync(
+      storePath,
+      JSON.stringify({
+        entries: [
+          {
+            url: "https://storage.googleapis.com/screen-record/recording.mp4",
+            title: "Old upload",
+            recordedAt: "2024-06-15T12:00:00.000Z",
+          },
+        ],
       }),
-    ).toEqual([
-      {
-        url: "https://example.com/r/abc",
-        title: "Quarterly review",
-        recordedAt: "2024-06-15T12:00:00.000Z",
-      },
-      {
-        url: "https://example.com/r/old",
-        title: "Old recording",
-        recordedAt: "2024-06-14T12:00:00.000Z",
-      },
-    ]);
+      "utf8",
+    );
+
+    purgeLegacyRecentRecordingStore();
+
+    expect(existsSync(storePath)).toBe(false);
   });
 });

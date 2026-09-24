@@ -21,15 +21,14 @@ export type RecordingEndedPayload = { code: number | null; signal: NodeJS.Signal
 export type RecordingGcsUploadPayload =
   | {
       ok: true
-      /** Share URL (prefer this over `gcsUrl` when present). */
-      url: string
+      /** Web app share URL (`/r/<id>`) when ingest succeeds. */
+      url?: string
+      detailUrl?: string
       /** Raw GCS public URL (storage.googleapis.com). */
       gcsUrl: string
       /** `recordings/<filename>.mp4` */
       gcsObjectName: string
-      /** Optional web app detail page URL. */
-      detailUrl?: string
-      /** Set when web ingest was attempted but failed (GCS link used instead). */
+      /** Set when web ingest was attempted but failed. */
       ingestError?: string
       outputPath: string
       localFileDeleted?: boolean
@@ -49,14 +48,6 @@ export type CaptureDisplayScreenshotResult =
 export type OpenCountdownOverlayResult = { ok: true } | { ok: false; error: string }
 
 export type OpenRecordingOverlayResult = { ok: true } | { ok: false; error: string }
-
-export type RecentRecordingEntry = {
-  url: string
-  title: string
-  recordedAt: string
-}
-
-export type ListRecentRecordingsResult = { entries: RecentRecordingEntry[] }
 
 export type OpenExternalUrlResult = { ok: true } | { ok: false; error: string }
 
@@ -160,9 +151,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   stopRecording: (): Promise<StopRecordingResult> => ipcRenderer.invoke('recording:stop'),
   cancelRecording: (): Promise<CancelRecordingResult> => ipcRenderer.invoke('recording:cancel'),
-
-  listRecentRecordings: (): Promise<ListRecentRecordingsResult> =>
-    ipcRenderer.invoke('recordings:listRecent'),
 
   openScreenRecordingSettings: (): Promise<OpenScreenRecordingSettingsResult> =>
     ipcRenderer.invoke('system:openScreenRecordingSettings'),

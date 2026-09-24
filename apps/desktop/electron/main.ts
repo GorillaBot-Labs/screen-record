@@ -19,7 +19,7 @@ import { destroyCountdownOverlay, registerCountdownOverlayIpc } from './countdow
 import { destroyRecordingOverlay, openRecordingOverlay, registerRecordingOverlayIpc } from './recording-overlay'
 import { uploadRecordingToGcs } from './gcs-upload'
 import { recordingElapsedSeconds } from './recording-duration'
-import { readRecentRecordings, recordSuccessfulUpload } from './recent-recordings'
+import { purgeLegacyRecentRecordingStore } from './recent-recordings'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -30,12 +30,13 @@ process.env.APP_ROOT = appRoot
  * Load desktop env vars without requiring `export ...` in the shell.
  *
  * Precedence (last wins):
- * - `apps/desktop/.env` (dev convenience)
- * - `~/.screen-record/.env` (works for dev *and* packaged macOS app)
+ * - Dev: `apps/desktop/.env`
+ * - Packaged app: `apps/desktop/.env.production` (bundled at build time)
+ * - `~/.screen-record/.env` optional override
  */
 function loadDesktopEnv(): void {
   const candidates = [
-    path.join(appRoot, '.env'),
+    path.join(appRoot, app.isPackaged ? '.env.production' : '.env'),
     path.join(homedir(), '.screen-record', '.env'),
   ]
   for (const p of candidates) {
@@ -45,6 +46,13 @@ function loadDesktopEnv(): void {
 }
 
 loadDesktopEnv()
+
+if (!process.env.WEB_APP_BASE_URL?.trim()) {
+  const appUrl = process.env.APP_URL?.trim()
+  if (appUrl) {
+    process.env.WEB_APP_BASE_URL = appUrl.replace(/\/+$/, '')
+  }
+}
 
 // Default bucket if unset (override with `GCS_BUCKET` for another bucket).
 if (!process.env.GCS_BUCKET?.trim()) {
@@ -301,14 +309,14 @@ function notifyRecordingReady(detailUrl: string | undefined): void {
   if (!Notification.isSupported()) return
   if (detailUrl) {
     new Notification({
-      title: 'Your recording is ready',
-      body: 'Share link copied. Opening your recording page in the browser.',
+      title: 'Recording ready',
+      body: 'Opening your recording in the browser.',
     }).show()
     return
   }
   new Notification({
     title: 'Recording uploaded',
-    body: 'Direct video link copied to the clipboard.',
+    body: 'Uploaded to cloud storage, but no web share link was created. Check ~/.screen-record/.env.',
   }).show()
 }
 
@@ -352,6 +360,14 @@ async function ingestRecordingToWeb(
     const msg = e instanceof Error ? e.message : String(e)
     return { ok: false, reason: 'request_failed', error: msg }
   }
+}
+
+function appIconImage(): Electron.NativeImage {
+  const iconPath = path.join(app.getAppPath(), 'resources', 'icon.png')
+  if (existsSync(iconPath)) {
+    return nativeImage.createFromPath(iconPath)
+  }
+  return nativeImage.createEmpty()
 }
 
 function trayIconImage(): Electron.NativeImage {
@@ -537,9 +553,13 @@ function showMainWindow() {
 }
 
 function createWindow() {
+  const icon = appIconImage()
   mainWindow = new BrowserWindow({
-    width: 900,
-    height: 640,
+    width: 420,
+    height: 680,
+    minWidth: 380,
+    minHeight: 560,
+    ...(icon.isEmpty() ? {} : { icon }),
     webPreferences: {
       preload: path.join(__dirname, 'preload.mjs'),
       contextIsolation: true,
@@ -860,22 +880,21 @@ ipcMain.handle(
             gcsUrl,
             durationSeconds,
           )
-          let ingestTitle: string | undefined
           if (ingest.ok) {
             detailUrl = ingest.detailUrl
-            ingestTitle = ingest.title
           } else if (ingest.reason === 'request_failed') {
             ingestError = ingest.error
+          } else if (ingest.reason === 'not_configured') {
+            ingestError =
+              'Web app not configured. Set WEB_APP_BASE_URL and DESKTOP_INGEST_SECRET in ~/.screen-record/.env.'
           }
 
-          const shareUrl = detailUrl ?? gcsUrl
-          lastShareUrl = shareUrl
-          recordSuccessfulUpload({
-            url: shareUrl,
-            title: ingestTitle,
-            recordedAt: new Date().toISOString(),
-          })
-          clipboard.writeText(shareUrl)
+          if (detailUrl) {
+            lastShareUrl = detailUrl
+            clipboard.writeText(detailUrl)
+          } else {
+            lastShareUrl = null
+          }
           updateTrayMenu()
           notifyRecordingReady(detailUrl)
           if (detailUrl) {
@@ -897,10 +916,9 @@ ipcMain.handle(
           outputPath,
           ...(result.ok
             ? {
-                url: (detailUrl ?? result.url) as string,
                 gcsUrl: result.url,
                 gcsObjectName: result.objectName,
-                ...(detailUrl ? { detailUrl } : {}),
+                ...(detailUrl ? { url: detailUrl, detailUrl } : {}),
                 ...(ingestError ? { ingestError } : {}),
                 ...(localFileDeleted ? { localFileDeleted: true as const } : {}),
               }
@@ -960,10 +978,6 @@ ipcMain.handle('recording:restart', async (): Promise<{ ok: true } | { ok: false
   const res = cancelRecordingChild()
   if (res.ok) updateTrayMenu()
   return res
-})
-
-ipcMain.handle('recordings:listRecent', () => {
-  return { entries: readRecentRecordings() }
 })
 
 ipcMain.handle(
@@ -1057,6 +1071,13 @@ function stopRecordingOnQuit() {
 }
 
 app.whenReady().then(() => {
+  purgeLegacyRecentRecordingStore()
+  if (process.platform === 'darwin') {
+    const icon = appIconImage()
+    if (!icon.isEmpty()) {
+      app.dock?.setIcon(icon)
+    }
+  }
   createWindow()
   createTray()
 })

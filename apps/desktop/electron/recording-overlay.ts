@@ -44,9 +44,9 @@ function createOverlayWindow(): Promise<void> {
     const d = displayForIndex(overlayPendingDisplayIndex)
     const area = d.workArea
 
-    // Skinny, tall control strip on the left edge of the recorded display.
-    const width = 150
-    const height = 260
+    // Loom-style horizontal control pill on the recorded display.
+    const width = 420
+    const height = 52
     const marginX = 12
     const marginY = 12
     const x = area.x + marginX

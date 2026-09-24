@@ -1,18 +1,13 @@
+import { LogoMark } from "@/components/LogoMark";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  ArrowUpRight,
   Copy,
-  ExternalLink,
-  FileText,
+  Mic,
   Monitor,
   RefreshCw,
-  Rocket,
 } from "lucide-react";
 
-import type {
-  CaptureDevice,
-  RecentRecordingEntry,
-} from "../electron/preload";
+import type { CaptureDevice } from "../electron/preload";
 
 const VIDEO_INDEX_STORAGE_KEY = "screen-record:avVideoIndex";
 const AUDIO_INDEX_STORAGE_KEY = "screen-record:avAudioIndex";
@@ -88,65 +83,6 @@ function sortByIndex(devices: CaptureDevice[]): CaptureDevice[] {
   return [...devices].sort((a, b) => a.index - b.index);
 }
 
-function statusToneClass(params: {
-  recording: boolean;
-  cloudUploading: boolean;
-  devicesError: string | null;
-  shareError: string | null;
-  status: string;
-}): string {
-  const { recording, cloudUploading, devicesError, shareError, status } =
-    params;
-  if (recording) return "app-status app-status--recording";
-  if (cloudUploading) return "app-status app-status--busy";
-  if (devicesError != null || shareError != null)
-    return "app-status app-status--error";
-  const s = status.toLowerCase();
-  if (
-    s.includes("failed") ||
-    s.includes("could not") ||
-    s.includes("cannot start")
-  ) {
-    return "app-status app-status--error";
-  }
-  if (s.includes("uploaded") || s.includes("clipboard")) {
-    return "app-status app-status--success";
-  }
-  if (
-    s.includes("uploading") ||
-    s.includes("starting…") ||
-    s.includes("finalize")
-  ) {
-    return "app-status app-status--busy";
-  }
-  return "app-status";
-}
-
-function recordingTitleFromUrl(url: string): string {
-  try {
-    const parsed = new URL(url);
-    const segments = parsed.pathname.split("/").filter(Boolean);
-    const last = segments.at(-1) ?? "";
-    if (parsed.pathname.startsWith("/r/") && segments.length === 2) {
-      return "Recording";
-    }
-    const name = decodeURIComponent(last);
-    if (!name) return "Recording";
-    const withoutExt = name.replace(/\.mp4$/i, "");
-    return withoutExt.length > 0 ? withoutExt : name;
-  } catch {
-    return "Recording";
-  }
-}
-
-function isWebShareUrl(url: string): boolean {
-  try {
-    return new URL(url).pathname.startsWith("/r/");
-  } catch {
-    return false;
-  }
-}
-
 export default function App() {
   const [log, setLog] = useState<string>("");
   const [status, setStatus] = useState<string>("Idle");
@@ -160,18 +96,11 @@ export default function App() {
   const [recording, setRecording] = useState(false);
   /** After sck-record exits: upload to GCS until we get `recording:gcs-upload`. */
   const [cloudUploading, setCloudUploading] = useState(false);
-  const [shareUrl, setShareUrl] = useState<string | null>(null);
-  const [shareDetailUrl, setShareDetailUrl] = useState<string | null>(null);
-  const [shareIngestWarning, setShareIngestWarning] = useState<string | null>(
-    null,
-  );
   const [shareError, setShareError] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [diagnosticsEvents, setDiagnosticsEvents] = useState<DiagnosticsEvent[]>(
     [],
   );
-  /** Last up to five successful upload URLs (persisted under ~/.screen-record). */
-  const [recentEntries, setRecentEntries] = useState<RecentRecordingEntry[]>([]);
   /** 3 → 2 → 1 fullscreen overlay before recording; `null` when hidden. */
   const [countdown, setCountdown] = useState<number | null>(null);
   /** Blocks overlapping start/countdown; avoids depending on `countdown` in `handleStart` deps (tray listener stability). */
@@ -249,14 +178,6 @@ export default function App() {
   // Electron binary; probing for screenshots can be slow and confusing. We instead
   // allow recording attempts and surface errors from the recorder process.
 
-  const refreshRecentRecordings = useCallback(async () => {
-    const api = window.electronAPI;
-    if (!api) return;
-    const { entries } = await api.listRecentRecordings();
-    pushDiagnosticsEvent({ kind: "recent.refresh", data: { count: entries.length } });
-    setRecentEntries(entries);
-  }, [pushDiagnosticsEvent]);
-
   useEffect(() => {
     const api = window.electronAPI;
     pushDiagnosticsEvent({
@@ -273,7 +194,6 @@ export default function App() {
     }
 
     void refreshDevices();
-    void refreshRecentRecordings();
 
     const offStderr = api.onRecordingStderr((chunk) => {
       logRef.current += chunk;
@@ -288,16 +208,14 @@ export default function App() {
       setRecording(false);
       if (cancelled) {
         setCloudUploading(false);
-        setShareUrl(null);
-        setShareDetailUrl(null);
-        setShareIngestWarning(null);
         setShareError(null);
         setOutputPath(null);
         setStatus("Cancelled.");
         return;
       }
       setCloudUploading(true);
-      setStatus(`Ended (code=${code}, signal=${signal ?? "none"}). Uploading…`);
+      setShareError(null);
+      setStatus("Uploading…");
     });
 
     const offGcs = api.onRecordingGcsUpload((p) => {
@@ -318,36 +236,27 @@ export default function App() {
       setCloudUploading(false);
       if (p.outputPath !== outputPathRef.current) return;
       if (p.ok) {
-        setShareUrl(p.url);
-        setShareDetailUrl(p.detailUrl ?? null);
-        setShareIngestWarning(
-          p.detailUrl
+        const appLink = p.detailUrl ?? p.url ?? null;
+        setShareError(
+          appLink
             ? null
-            : p.ingestError
-              ? `Could not reach the web app (${p.ingestError}). Copied the direct video link instead.`
-              : null,
+            : p.ingestError ??
+                "Uploaded, but could not open the recording page. Check ~/.screen-record/.env and that the web app is running.",
         );
-        setShareError(null);
         setStatus(
-          p.detailUrl
-            ? "Your recording is ready. Share link copied — opening in your browser."
-            : p.ingestError
-              ? "Recording uploaded. Copied the direct video link instead."
-              : "Recording uploaded. Share link copied to the clipboard.",
+          appLink
+            ? "Recording ready — opened in your browser."
+            : "Recording uploaded, but the browser did not open.",
         );
-        if (p.detailUrl) {
-          setToast("Link copied");
+        if (appLink) {
+          setToast("Opened in browser");
         }
-        void refreshRecentRecordings();
         if (p.localFileDeleted) {
           setOutputPath(null);
         }
       } else {
-        setShareUrl(null);
-        setShareDetailUrl(null);
-        setShareIngestWarning(null);
         setShareError(p.error);
-        setStatus("Cloud upload failed.");
+        setStatus("Upload failed.");
       }
     });
 
@@ -356,7 +265,7 @@ export default function App() {
       offEnded();
       offGcs();
     };
-  }, [pushDiagnosticsEvent, refreshDevices, refreshRecentRecordings]);
+  }, [pushDiagnosticsEvent, refreshDevices]);
 
   useEffect(() => {
     if (toast == null) return;
@@ -503,7 +412,6 @@ export default function App() {
         });
         setRecording(true);
         setOutputPath(res.outputPath);
-        setShareUrl(null);
         setShareError(null);
         setCloudUploading(false);
         setStatus(
@@ -546,54 +454,6 @@ export default function App() {
     setToast(message);
   }
 
-  async function handleCopyShareLink() {
-    if (!shareUrl) return;
-    try {
-      await navigator.clipboard.writeText(shareUrl);
-      pushDiagnosticsEvent({ kind: "clipboard.copy.shareUrl.ok" });
-      showToast("Copied");
-    } catch {
-      pushDiagnosticsEvent({ kind: "clipboard.copy.shareUrl.error" });
-      /* user can select the link in the UI */
-    }
-  }
-
-  async function handleCopyRecordingUrl(url: string) {
-    try {
-      await navigator.clipboard.writeText(url);
-      pushDiagnosticsEvent({ kind: "clipboard.copy.recentUrl.ok" });
-      showToast("Copied");
-    } catch {
-      pushDiagnosticsEvent({ kind: "clipboard.copy.recentUrl.error" });
-      setStatus("Could not copy automatically—select the link text below.");
-    }
-  }
-
-  async function handleOpenRecordingUrl(url: string) {
-    const api = window.electronAPI;
-    if (!api) return;
-    const res = await api.openExternalUrl(url);
-    if (!res.ok) {
-      pushDiagnosticsEvent({ kind: "shell.openExternal.error", message: res.error });
-      setStatus(`Could not open link: ${res.error}`);
-    } else {
-      pushDiagnosticsEvent({ kind: "shell.openExternal.ok" });
-    }
-  }
-
-  async function handleRevealOutputPath() {
-    const api = window.electronAPI;
-    if (!api) return;
-    if (!outputPath) return;
-    const res = await api.revealInFinder(outputPath);
-    if (!res.ok) {
-      pushDiagnosticsEvent({ kind: "finder.reveal.error", message: res.error });
-      setStatus(`Could not reveal file: ${res.error}`);
-    } else {
-      pushDiagnosticsEvent({ kind: "finder.reveal.ok" });
-    }
-  }
-
   async function handleCopyDiagnostics() {
     type ElectronAPIWithSystemInfo = NonNullable<typeof window.electronAPI> & {
       getSystemInfo?: () => Promise<{
@@ -626,7 +486,6 @@ export default function App() {
       `audioDevices=${audioDevices.length}`,
       `videoIndex=${videoIndex ?? ""}`,
       `audioIndex=${audioIndex ?? ""}`,
-      `shareUrl=${shareUrl ?? ""}`,
       `shareError=${shareError ?? ""}`,
       `outputPath=${outputPath ?? ""}`,
       "",
@@ -660,357 +519,217 @@ export default function App() {
     audioDevices.length > 0;
 
   const uiLockedForCountdown = countdown !== null;
-  const statusClass = statusToneClass({
-    recording,
-    cloudUploading,
-    devicesError,
-    shareError,
-    status,
-  });
+
+  type StudioPhase =
+    | "countdown"
+    | "recording"
+    | "uploading"
+    | "ready"
+    | "error"
+    | "idle";
+
+  let studioPhase: StudioPhase = "idle";
+  if (countdown !== null) studioPhase = "countdown";
+  else if (recording) studioPhase = "recording";
+  else if (cloudUploading) studioPhase = "uploading";
+  else if (shareError || devicesError) studioPhase = "error";
+  else if (status.toLowerCase().includes("opened")) studioPhase = "ready";
+
+  const heroLabel =
+    countdown !== null
+      ? `Starting in ${countdown}…`
+      : recording
+        ? "Recording — stop from the menu bar or tray"
+        : cloudUploading
+          ? "Uploading your recording…"
+          : shareError
+            ? shareError
+            : devicesError
+              ? devicesError
+              : studioPhase === "ready"
+                ? "Your recording is open in the browser"
+                : "Tap record when you're ready";
+
+  const statusLabel =
+    countdown !== null
+      ? "Starting"
+      : recording
+        ? "Recording"
+        : cloudUploading
+          ? "Uploading"
+          : shareError || devicesError
+            ? "Needs attention"
+            : studioPhase === "ready"
+              ? "Done"
+              : devicesLoading
+                ? "Loading"
+                : "Ready";
+
+  const statusClass = `studio-status studio-status--${studioPhase === "idle" && devicesLoading ? "busy" : studioPhase}`;
+
+  const setupLocked =
+    !hasBridge || recording || uiLockedForCountdown || devicesLoading;
 
   return (
     <>
-      <div className="app">
-        <div className="app-container">
-          <header className="app-header">
-            <div className="app-brand">
-              <span className="app-mark" aria-hidden />
-              <div>
-                <h1>Screen Record</h1>
-                <p className="app-tagline">
-                  Screen and microphone capture, then upload to get a shareable
-                  link.
-                </p>
-              </div>
-            </div>
-            {!hasBridge ? (
-              <p className="app-banner" role="status">
-                Open this app in Electron to record. The web preview has no
-                system bridge.
+      <div className="studio">
+        <header className="studio-bar">
+          <div className="studio-brand">
+            <LogoMark className="studio-mark" size={36} />
+            <div className="studio-brand-copy">
+              <h1 className="studio-title">Screen Record</h1>
+              <p className={statusClass} role="status" aria-live="polite">
+                {statusLabel}
               </p>
-            ) : null}
-            <p className={statusClass} role="status" aria-live="polite">
-              {status}
-            </p>
-          </header>
-
-          <section className="app-card" aria-labelledby="capture-heading">
-            <div className="app-card-header">
-              <h2 id="capture-heading" className="app-card-title">
-                Capture
-              </h2>
-              <button
-                type="button"
-                className="btn btn-ghost"
-                onClick={() => void refreshDevices()}
-                disabled={
-                  !hasBridge ||
-                  recording ||
-                  devicesLoading ||
-                  uiLockedForCountdown
-                }
-              >
-                <RefreshCw size={16} aria-hidden />
-                <span>Refresh devices</span>
-              </button>
             </div>
-            <div className="app-card-body">
-              {devicesLoading ? <p className="hint">Loading devices…</p> : null}
-              {devicesError ? (
-                <p className="hint warn">{devicesError}</p>
-              ) : null}
-              {!devicesLoading && !devicesError ? (
-                <div className="device-grid">
-                  <div className="device-grid-item device-grid-item--full">
-                    <div className="field-label-row">
-                      <span className="sub-label" id="screen-picker-label">
-                        Screen
-                      </span>
-                    </div>
-                    <div
-                      className="screen-picker"
-                      role="radiogroup"
-                      aria-labelledby="screen-picker-label"
-                    >
-                      {videoDevices.map((d) => {
-                        const selected = d.index === videoIndex;
-                        const disabled =
-                          !hasBridge ||
-                          recording ||
-                          uiLockedForCountdown ||
-                          videoDevices.length === 0;
-                        const resolution = resolutionFromDeviceName(d.name);
-                        return (
-                          <button
-                            key={d.index}
-                            type="button"
-                            className={
-                              selected
-                                ? "screen-card screen-card--selected"
-                                : "screen-card"
-                            }
-                            onClick={() => handleVideoChange(d.index)}
-                            disabled={disabled}
-                            role="radio"
-                            aria-checked={selected}
-                          >
-                            <span className="screen-card-screen" aria-hidden>
-                              <Monitor size={72} aria-hidden />
-                            </span>
-                            <span className="screen-card-text">
-                              <span className="screen-card-title">{d.name}</span>
-                              <span className="screen-card-meta">
-                                {resolution ? `${resolution} · ` : null}Index{" "}
-                                {d.index}
-                              </span>
-                            </span>
-                          </button>
-                        );
-                      })}
-                    </div>
+          </div>
+          <button
+            type="button"
+            className="studio-icon-btn"
+            onClick={() => void refreshDevices()}
+            disabled={!hasBridge || recording || devicesLoading || uiLockedForCountdown}
+            aria-label="Refresh devices"
+            title="Refresh devices"
+          >
+            <RefreshCw size={18} aria-hidden className={devicesLoading ? "studio-spin" : undefined} />
+          </button>
+        </header>
 
-                    {/* Display preview intentionally disabled (screenshot probes can be slow and permission-sensitive). */}
-                  </div>
-                  <div className="device-grid-item device-grid-item--full">
-                    <div className="field-label-row">
-                      <label htmlFor="av-audio" className="sub-label">
-                        Audio
-                      </label>
-                    </div>
-                    <select
-                      id="av-audio"
-                      className="app-select"
-                      value={audioIndex ?? ""}
-                      onChange={(e) =>
-                        handleAudioChange(Number.parseInt(e.target.value, 10))
-                      }
-                      disabled={
-                        !hasBridge ||
-                        recording ||
-                        uiLockedForCountdown ||
-                        audioDevices.length === 0
-                      }
-                      aria-labelledby="capture-heading"
-                    >
-                      {audioDevices.map((d) => (
-                        <option key={d.index} value={d.index}>
-                          [{d.index}] {d.name}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
-              ) : null}
-            </div>
-          </section>
+        {!hasBridge ? (
+          <p className="studio-banner" role="status">
+            Open in Electron to record — the browser preview has no system bridge.
+          </p>
+        ) : null}
 
-          <div className="app-actions">
+        <main className="studio-main">
+          <section
+            className={`studio-hero studio-hero--${studioPhase}`}
+            aria-labelledby="studio-hero-label"
+          >
             <button
               type="button"
-              className="btn btn-primary"
+              className="studio-record"
               onClick={() => void handleStart()}
               disabled={!canRecord}
+              aria-label={recording ? "Recording in progress" : "Start recording"}
             >
-              <Rocket size={16} aria-hidden />
-              <span>Start recording</span>
+              <span className="studio-record-ring" aria-hidden />
+              <span className="studio-record-core" aria-hidden />
             </button>
-            {hasBridge ? (
-              <p className="app-actions-hint">
-                After you start, the window minimizes. Use the menu bar (macOS)
-                or system tray icon to open the app or stop recording.
+            <p id="studio-hero-label" className="studio-hero-label">
+              {heroLabel}
+            </p>
+            {status !== "Idle" && status !== heroLabel ? (
+              <p className="studio-hero-detail" aria-live="polite">
+                {status}
               </p>
             ) : null}
-          </div>
-
-          <section className="app-card" aria-labelledby="share-heading">
-            <div className="app-card-header">
-              <h2 id="share-heading" className="app-card-title">
-                Share link
-              </h2>
-            </div>
-            <div className="app-card-body">
-              {cloudUploading ? (
-                <p className="hint">Uploading and preparing your share link…</p>
-              ) : null}
-              {shareError ? <p className="hint warn">{shareError}</p> : null}
-              {shareIngestWarning ? (
-                <p className="hint warn">{shareIngestWarning}</p>
-              ) : null}
-              {shareUrl ? (
-                <>
-                  <div className="share-ready">
-                    <div className="share-ready-header">
-                      <div className="share-ready-title">
-                        {shareDetailUrl ? "Your recording is ready" : "Ready to share"}
-                      </div>
-                      <div className="share-ready-sub">
-                        {shareDetailUrl
-                          ? "Anyone with this link can watch on the web. It was copied automatically."
-                          : "Direct video link copied automatically."}
-                      </div>
-                    </div>
-                    <div className="share-ready-field">
-                      <input
-                        className="share-ready-input"
-                        value={shareUrl}
-                        readOnly
-                        onFocus={(e) => e.currentTarget.select()}
-                        aria-label="Share link"
-                      />
-                    </div>
-                  </div>
-                  <div className="inline-actions inline-actions--share">
-                    <button
-                      type="button"
-                      className="btn btn-primary"
-                      onClick={() => void handleCopyShareLink()}
-                    >
-                      <Copy size={16} aria-hidden />
-                      <span>Copy link</span>
-                    </button>
-                    <button
-                      type="button"
-                      className="btn btn-outline"
-                      onClick={() =>
-                        void handleOpenRecordingUrl(shareDetailUrl ?? shareUrl)
-                      }
-                    >
-                      <ExternalLink size={16} aria-hidden />
-                      <span>{shareDetailUrl ? "Open recording page" : "Open"}</span>
-                    </button>
-                    {outputPath ? (
-                      <button
-                        type="button"
-                        className="btn btn-ghost"
-                        onClick={() => void handleRevealOutputPath()}
-                      >
-                        <ArrowUpRight size={16} aria-hidden />
-                        <span>Reveal file</span>
-                      </button>
-                    ) : null}
-                  </div>
-                </>
-              ) : !cloudUploading && !shareError ? (
-                <p className="path-placeholder">
-                  When a recording ends, your web share link appears here and
-                  opens in the browser automatically.
-                </p>
-              ) : null}
-            </div>
           </section>
 
-          {hasBridge ? (
-            <details className="app-details" aria-labelledby="recent-heading">
-              <summary id="recent-heading">
-                <span>Recent uploads</span>
-                <span className="app-details-meta">
-                  {recentEntries.length > 0 ? `${recentEntries.length}` : ""}
-                </span>
-              </summary>
-              <div className="app-details-body">
-                <div className="recent-controls">
-                  <p className="hint hint-flush recent-hint">
-                    Up to five recent share links from this Mac are kept here.
-                  </p>
-                  <button
-                    type="button"
-                    className="btn btn-ghost btn-compact"
-                    onClick={() => void refreshRecentRecordings()}
-                    disabled={recording || uiLockedForCountdown}
+          <section className="studio-setup" aria-label="Capture setup">
+            {devicesLoading ? (
+              <p className="studio-setup-note">Loading devices…</p>
+            ) : null}
+
+            {!devicesLoading && !devicesError ? (
+              <>
+                <div className="studio-field">
+                  <span className="studio-field-label" id="screen-picker-label">
+                    Screen
+                  </span>
+                  <div
+                    className="studio-screens"
+                    role="radiogroup"
+                    aria-labelledby="screen-picker-label"
                   >
-                    <RefreshCw size={15} aria-hidden />
-                    <span>Refresh</span>
-                  </button>
+                    {videoDevices.map((d) => {
+                      const selected = d.index === videoIndex;
+                      const resolution = resolutionFromDeviceName(d.name);
+                      return (
+                        <button
+                          key={d.index}
+                          type="button"
+                          className={
+                            selected
+                              ? "studio-screen studio-screen--selected"
+                              : "studio-screen"
+                          }
+                          onClick={() => handleVideoChange(d.index)}
+                          disabled={setupLocked || videoDevices.length === 0}
+                          role="radio"
+                          aria-checked={selected}
+                        >
+                          <Monitor size={16} strokeWidth={2} aria-hidden />
+                          <span className="studio-screen-copy">
+                            <span className="studio-screen-name">{d.name}</span>
+                            {resolution ? (
+                              <span className="studio-screen-meta">{resolution}</span>
+                            ) : null}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
 
-                {recentEntries.length === 0 ? (
-                  <p className="hint hint-flush">
-                    Finish a recording to build the list.
-                  </p>
-                ) : (
-                  <ul className="recent-list" role="list">
-                    {recentEntries.map((entry) => (
-                      <li key={entry.url} className="recent-item">
-                        <div className="recent-item-header">
-                          <span className="recent-item-title">
-                            {entry.title ||
-                              (isWebShareUrl(entry.url)
-                                ? "Web recording"
-                                : recordingTitleFromUrl(entry.url))}
-                          </span>
-                          <div className="recent-item-actions">
-                            <button
-                              type="button"
-                              className="btn btn-outline btn-compact"
-                              onClick={() => void handleCopyRecordingUrl(entry.url)}
-                            >
-                              <Copy size={15} aria-hidden />
-                              <span>Copy</span>
-                            </button>
-                            <button
-                              type="button"
-                              className="btn btn-outline btn-compact"
-                              onClick={() => void handleOpenRecordingUrl(entry.url)}
-                            >
-                              <ExternalLink size={15} aria-hidden />
-                              <span>Open</span>
-                            </button>
-                          </div>
-                        </div>
-                        <code className="recent-item-url" title={entry.url}>
-                          {entry.url}
-                        </code>
-                      </li>
+                <div className="studio-field">
+                  <label htmlFor="av-audio" className="studio-field-label">
+                    <Mic size={14} strokeWidth={2} aria-hidden />
+                    Microphone
+                  </label>
+                  <select
+                    id="av-audio"
+                    className="studio-select"
+                    value={audioIndex ?? ""}
+                    onChange={(e) =>
+                      handleAudioChange(Number.parseInt(e.target.value, 10))
+                    }
+                    disabled={setupLocked || audioDevices.length === 0}
+                  >
+                    {audioDevices.map((d) => (
+                      <option key={d.index} value={d.index}>
+                        {d.name}
+                      </option>
                     ))}
-                  </ul>
-                )}
-              </div>
-            </details>
-          ) : null}
+                  </select>
+                </div>
+              </>
+            ) : null}
+          </section>
+        </main>
 
-          <details className="app-details">
-            <summary>
-              <FileText size={16} aria-hidden />
-              <span>Recorder log</span>
-            </summary>
-            <div className="app-details-body">
-              <pre className="log">{log || "—"}</pre>
+        <footer className="studio-foot">
+          <details className="studio-advanced">
+            <summary>Advanced</summary>
+            <div className="studio-advanced-body">
+              <div className="studio-advanced-block">
+                <div className="studio-advanced-head">
+                  <span className="studio-advanced-title">Recorder log</span>
+                </div>
+                <pre className="studio-log">{log || "—"}</pre>
+              </div>
+              <div className="studio-advanced-block">
+                <div className="studio-advanced-head">
+                  <span className="studio-advanced-title">Diagnostics</span>
+                  <button
+                    type="button"
+                    className="studio-text-btn"
+                    onClick={() => void handleCopyDiagnostics()}
+                    disabled={uiLockedForCountdown}
+                  >
+                    <Copy size={14} aria-hidden />
+                    Copy
+                  </button>
+                </div>
+                <pre className="studio-log studio-log--tall">
+                  {diagnosticsEvents.length === 0
+                    ? "—"
+                    : diagnosticsEvents.map(formatDiagnosticsEvent).join("\n")}
+                </pre>
+              </div>
             </div>
           </details>
-
-          <details className="app-details" aria-labelledby="diagnostics-heading">
-            <summary id="diagnostics-heading">
-              <span className="app-details-summary-left">
-                <FileText size={16} aria-hidden />
-                <span>Diagnostics</span>
-              </span>
-              <span className="app-details-meta">
-                {diagnosticsEvents.length > 0 ? `${diagnosticsEvents.length}` : ""}
-              </span>
-            </summary>
-            <div className="app-details-body">
-              <div className="diagnostics-controls">
-                <p className="hint hint-flush">
-                  Copy this when filing a bug or support ticket.
-                </p>
-                <button
-                  type="button"
-                  className="btn btn-ghost btn-compact"
-                  onClick={() => void handleCopyDiagnostics()}
-                  disabled={uiLockedForCountdown}
-                >
-                  <Copy size={15} aria-hidden />
-                  <span>Copy diagnostics</span>
-                </button>
-              </div>
-              <pre className="log log--diagnostics">
-                {diagnosticsEvents.length === 0
-                  ? "—"
-                  : diagnosticsEvents.map(formatDiagnosticsEvent).join("\n")}
-              </pre>
-            </div>
-          </details>
-        </div>
+        </footer>
       </div>
 
       {toast ? (

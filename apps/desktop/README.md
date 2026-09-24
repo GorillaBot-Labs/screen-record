@@ -29,21 +29,56 @@ npm install
 
 ## Development notes
 
-This project is intended to run **locally** via `npm run dev` (or `npm run build` then `npm start`). On macOS, **Screen Recording** and **Microphone** apply to the Electron binary you run from that workflow.
+### Daily workflow (no reinstall)
 
-Uploads go to the GCS bucket **`screen-record`** by default (set `GCS_BUCKET` if you need a different bucket). Credentials: `~/.screen-record/gcp-credentials.json` (see `electron/gcs-upload.ts`).
+Use dev mode while iterating. You only need `npm run install:mac` when you want a packaged app in `/Applications` (testing the real `.app`, sharing a build, etc.).
 
-To copy/open the **recording page** on your web app after upload, set the **same** secret in both apps and point the desktop at your dev server. The desktop app loads env vars automatically from:
+**Terminal 1 — web gallery (needed for ingest + browser open after upload):**
 
-- `~/.screen-record/.env` (works for both packaged app + local dev)
-- `apps/desktop/.env` (dev convenience)
+```bash
+npm run dev:web
+```
 
-Start by copying `apps/desktop/.env.example` to one of those locations.
+**Terminal 2 — desktop recorder:**
 
-- Web: `DESKTOP_INGEST_SECRET` in `apps/web/.env`
-- Desktop: `WEB_APP_BASE_URL=http://localhost:3000` and the same `DESKTOP_INGEST_SECRET` in the shell where you run Electron
+```bash
+npm run dev:desktop
+```
 
-If either is missing, the desktop still uploads to GCS and copies the raw file URL.
+What reloads automatically:
+
+| Change | Reload |
+|--------|--------|
+| React UI (`src/`, CSS) | Hot reload — instant |
+| Electron main/preload (`electron/`) | Vite restarts Electron — a few seconds |
+| Env (`.env` or `.env.production`) | Quit and restart the app |
+| Native recorder (`native/sck-record`) | Restart `dev:desktop` (rebuilds Swift on start) |
+
+Dev loads `apps/desktop/.env` (copy from `.env.example`). Set `WEB_APP_BASE_URL=http://localhost:3000` and the same `DESKTOP_INGEST_SECRET` as `apps/web/.env`.
+
+macOS **Screen Recording** and **Microphone** permissions apply to the **Electron dev binary**, not the installed `Screen Record.app`. Grant them to Electron when prompted during `dev:desktop`.
+
+### Packaging (occasionally)
+
+1. Copy `.env.production.example` → `apps/desktop/.env.production` with your **deployed** gallery URL (not localhost).
+2. Run:
+
+```bash
+npm run install:mac
+```
+
+The production env file is bundled into `Screen Record.app`. Optional override: `~/.screen-record/.env`.
+
+### Uploads and share links
+
+When `WEB_APP_BASE_URL` and `DESKTOP_INGEST_SECRET` are set, finishing a recording uploads the file and **opens the recording page in your browser**. The tray menu still offers “Copy last share link”.
+
+| Mode | Env file |
+|------|----------|
+| `npm run dev:desktop` | `apps/desktop/.env` |
+| Installed `.app` | `apps/desktop/.env.production` (bundled at build) |
+
+Both need the same `DESKTOP_INGEST_SECRET` as the web app.
 
 ## Recording troubleshooting (sck-record)
 

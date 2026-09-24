@@ -1,3 +1,4 @@
+import { appBaseUrl } from "@/lib/app-url";
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 
@@ -54,7 +55,7 @@ export async function POST(request: Request) {
     select: { id: true, title: true },
   });
 
-  const detailUrl = `${new URL(request.url).origin}/r/${recording.id}`;
+  const detailUrl = `${appBaseUrl()}/r/${recording.id}`;
   return NextResponse.json({
     ok: true,
     id: recording.id,

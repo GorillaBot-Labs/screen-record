@@ -6,7 +6,6 @@ import type {
   ElectronOverlayAPI,
   ElectronRecordingOverlayAPI,
   ListCaptureDevicesResult,
-  ListRecentRecordingsResult,
   OpenRecordingOverlayResult,
   OpenExternalUrlResult,
   OpenScreenRecordingSettingsResult,
@@ -38,7 +37,6 @@ declare global {
       }) => Promise<StartRecordingResult>;
       stopRecording: () => Promise<StopRecordingResult>;
       cancelRecording: () => Promise<CancelRecordingResult>;
-      listRecentRecordings: () => Promise<ListRecentRecordingsResult>;
       openScreenRecordingSettings: () => Promise<OpenScreenRecordingSettingsResult>;
       openExternalUrl: (url: string) => Promise<OpenExternalUrlResult>;
       revealInFinder: (filePath: string) => Promise<RevealInFinderResult>;

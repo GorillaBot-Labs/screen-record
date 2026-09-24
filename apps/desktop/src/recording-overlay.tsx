@@ -65,7 +65,6 @@ function RecordingOverlayApp() {
         lastTickMsRef.current = Date.now()
         setPaused(false)
       } else {
-        // eslint-disable-next-line no-console
         console.warn('Resume failed', res)
       }
     } else {
@@ -73,7 +72,6 @@ function RecordingOverlayApp() {
       if (res?.ok) {
         setPaused(true)
       } else {
-        // eslint-disable-next-line no-console
         console.warn('Pause failed', res)
       }
     }
@@ -92,25 +90,24 @@ function RecordingOverlayApp() {
   }
 
   return (
-    <div className="recording-overlay" role="dialog" aria-modal="false" aria-label="Recording status">
-      <div className="recording-overlay-left">
+    <div className="recording-overlay" role="toolbar" aria-label="Recording controls">
+      <div className="recording-overlay-status">
         <div className="recording-overlay-dot" aria-hidden />
-        <div className="recording-overlay-meta">
-          <div className="recording-overlay-title">Recording</div>
-          <div className="recording-overlay-time" aria-live="polite">
-            {formatElapsed(elapsed)}
-          </div>
-        </div>
+        <time className="recording-overlay-time" aria-live="polite">
+          {formatElapsed(elapsed)}
+        </time>
       </div>
 
-      <div className="recording-overlay-actions" role="group" aria-label="Recording controls">
+      <div className="recording-overlay-divider" aria-hidden />
+
+      <div className="recording-overlay-actions">
         <button
           type="button"
           className="recording-overlay-btn"
           onClick={handleTogglePause}
           aria-label={paused ? 'Resume recording' : 'Pause recording'}
         >
-          {paused ? <Play size={22} aria-hidden /> : <Pause size={22} aria-hidden />}
+          {paused ? <Play size={16} aria-hidden /> : <Pause size={16} aria-hidden />}
         </button>
 
         <button
@@ -119,11 +116,16 @@ function RecordingOverlayApp() {
           onClick={handleStop}
           aria-label="Stop recording"
         >
-          <Square size={22} aria-hidden />
+          <Square size={14} fill="currentColor" aria-hidden />
         </button>
 
-        <button type="button" className="recording-overlay-btn" onClick={handleRestart} aria-label="Restart recording">
-          <RotateCcw size={22} aria-hidden />
+        <button
+          type="button"
+          className="recording-overlay-btn"
+          onClick={handleRestart}
+          aria-label="Restart recording"
+        >
+          <RotateCcw size={16} aria-hidden />
         </button>
 
         <button
@@ -132,7 +134,7 @@ function RecordingOverlayApp() {
           onClick={handleCancel}
           aria-label="Cancel recording"
         >
-          <X size={22} aria-hidden />
+          <X size={16} aria-hidden />
         </button>
       </div>
     </div>
@@ -140,4 +142,3 @@ function RecordingOverlayApp() {
 }
 
 createRoot(document.getElementById('root')!).render(<RecordingOverlayApp />)
-

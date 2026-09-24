@@ -5,6 +5,7 @@
     "apps/*"
   ],
   "scripts": {
+    "brand:icons": "bash brand/generate-icons.sh",
     "dev:desktop": "npm run dev -w screen-record",
     "dev:web": "npm run dev -w screen-record-web",
     "build": "npm run build -w screen-record && npm run build -w screen-record-web",

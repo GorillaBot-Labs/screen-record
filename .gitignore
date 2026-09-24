@@ -7,4 +7,6 @@ release
 *.log
 .DS_Store
 .env
+apps/desktop/.env
+apps/desktop/.env.production
 .credentials

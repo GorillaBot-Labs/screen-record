@@ -2,6 +2,7 @@
 
 import { deleteRecordings } from "@/app/actions/delete-recordings";
 import { moveRecording } from "@/app/actions/projects";
+import { ConfirmDialog } from "@/app/components/ConfirmDialog";
 import { RecordingCard } from "@/app/components/RecordingCard";
 import {
   collectLibraryTags,
@@ -55,6 +56,7 @@ export function LibraryView({
   const [tagFilter, setTagFilter] = useState<string | null>(null);
   const [hasCommentsOnly, setHasCommentsOnly] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
   const [bulkDeleting, setBulkDeleting] = useState(false);
 
   const allTags = useMemo(() => collectLibraryTags(recordings), [recordings]);
@@ -92,16 +94,9 @@ export function LibraryView({
     setSelected(new Set());
   }, []);
 
-  const handleBulkDelete = useCallback(async () => {
+  const handleBulkDeleteConfirm = useCallback(async () => {
     const ids = [...selected];
     if (ids.length === 0) return;
-    if (
-      !window.confirm(
-        `Delete ${ids.length} recording${ids.length === 1 ? "" : "s"}? This removes files from cloud storage and the catalog. You cannot undo this.`,
-      )
-    ) {
-      return;
-    }
     setBulkDeleting(true);
     try {
       const result = await deleteRecordings(ids);
@@ -118,6 +113,7 @@ export function LibraryView({
         return;
       }
       toast.success(`Deleted ${result.deleted} recording${result.deleted === 1 ? "" : "s"}`);
+      setBulkDeleteOpen(false);
       clearSelection();
       router.refresh();
     } catch {
@@ -229,12 +225,12 @@ export function LibraryView({
           </button>
           <button
             type="button"
-            onClick={() => void handleBulkDelete()}
+            onClick={() => setBulkDeleteOpen(true)}
             disabled={bulkDeleting}
             className="inline-flex items-center gap-1 rounded-md bg-danger px-2.5 py-1 text-xs font-medium text-white transition-colors hover:bg-red-700 disabled:opacity-50"
           >
             <Trash2 className="h-3.5 w-3.5" aria-hidden />
-            {bulkDeleting ? "Deleting…" : "Delete"}
+            Delete
           </button>
         </div>
       </div>
@@ -310,8 +306,19 @@ export function LibraryView({
   })();
 
   return (
-    <DndContext sensors={sensors} onDragEnd={(event) => void handleDragEnd(event)}>
-      {content}
-    </DndContext>
+    <>
+      <DndContext sensors={sensors} onDragEnd={(event) => void handleDragEnd(event)}>
+        {content}
+      </DndContext>
+      <ConfirmDialog
+        open={bulkDeleteOpen}
+        title={`Delete ${selected.size} recording${selected.size === 1 ? "" : "s"}?`}
+        description="This removes files from cloud storage and the catalog. You cannot undo this."
+        detail={`${selected.size} recording${selected.size === 1 ? "" : "s"} selected`}
+        loading={bulkDeleting}
+        onConfirm={() => void handleBulkDeleteConfirm()}
+        onCancel={() => setBulkDeleteOpen(false)}
+      />
+    </>
   );
 }

@@ -21,10 +21,10 @@ body {
   font-size: 0.9375rem;
   font-weight: 500;
   letter-spacing: 0.02em;
-  color: #e8eaed;
+  color: #ffffff;
   background: rgba(255, 255, 255, 0.12);
   border: 1px solid rgba(255, 255, 255, 0.22);
-  border-radius: 8px;
+  border-radius: 999px;
   cursor: pointer;
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
@@ -36,6 +36,6 @@ body {
 }
 
 .countdown-overlay-skip:focus-visible {
-  outline: 2px solid rgba(138, 180, 248, 0.85);
-  outline-offset: 3px;
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.2), 0 0 0 4px var(--accent-muted);
 }
