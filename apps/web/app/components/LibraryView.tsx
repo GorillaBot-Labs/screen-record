@@ -1,6 +1,6 @@
 "use client";
 
-import { deleteRecordings } from "@/app/actions/delete-recordings";
+import { deleteRecordingsViaApi } from "@/lib/recording-delete-api";
 import { moveRecording } from "@/app/actions/projects";
 import { ConfirmDialog } from "@/app/components/ConfirmDialog";
 import { RecordingCard } from "@/app/components/RecordingCard";
@@ -99,7 +99,7 @@ export function LibraryView({
     if (ids.length === 0) return;
     setBulkDeleting(true);
     try {
-      const result = await deleteRecordings(ids);
+      const result = await deleteRecordingsViaApi(ids);
       if (!result.ok) {
         toast.error(result.error);
         if (result.deletedIds.length > 0) {

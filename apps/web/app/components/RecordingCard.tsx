@@ -1,6 +1,6 @@
 "use client";
 
-import { deleteRecording } from "@/app/actions/delete-recording";
+import { deleteRecordingViaApi } from "@/lib/recording-delete-api";
 import { ConfirmDialog } from "@/app/components/ConfirmDialog";
 import { RecordingTags } from "@/app/components/RecordingTags";
 import {
@@ -84,7 +84,7 @@ export function RecordingCard({
   const handleDeleteConfirm = useCallback(async () => {
     setDeleting(true);
     try {
-      const result = await deleteRecording(recording.id);
+      const result = await deleteRecordingViaApi(recording.id);
       if (!result.ok) {
         toast.error(result.error);
         return;
