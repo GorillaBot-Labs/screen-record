@@ -68,7 +68,8 @@
       "entitlementsInherit": "build/entitlements.mac.plist",
       "extendInfo": {
         "NSScreenCaptureUsageDescription": "Screen Record captures the screen so it can be saved to a video file when you start a recording.",
-        "NSMicrophoneUsageDescription": "Screen Record uses the microphone when your recording includes system or device audio."
+        "NSMicrophoneUsageDescription": "Screen Record uses the microphone when your recording includes system or device audio.",
+        "NSCameraUsageDescription": "Screen Record shows your camera in a small overlay while recording, like Loom."
       }
     }
   }

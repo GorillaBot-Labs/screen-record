@@ -3,6 +3,8 @@
 import type {
   CaptureDevice,
   CaptureDisplayScreenshotResult,
+  CameraOverlaySize,
+  ElectronCameraOverlayAPI,
   ElectronOverlayAPI,
   ElectronRecordingOverlayAPI,
   ListCaptureDevicesResult,
@@ -27,6 +29,7 @@ declare global {
       countdownWaitMs: (ms: number) => Promise<{ skipped: boolean }>;
       overlay: ElectronOverlayAPI;
       recordingOverlay: ElectronRecordingOverlayAPI;
+      cameraOverlay: ElectronCameraOverlayAPI;
       resolveSckRecorderPath: () => Promise<ResolveSckRecorderResult>;
       listCaptureDevices: () => Promise<ListCaptureDevicesResult>;
       captureDisplayScreenshot: (

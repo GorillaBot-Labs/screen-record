@@ -1,5 +1,5 @@
 import { existsSync, mkdirSync, unlinkSync } from 'node:fs'
-import { homedir, tmpdir } from 'node:os'
+import { homedir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process'
@@ -16,10 +16,16 @@ import {
   Tray,
 } from 'electron'
 import { destroyCountdownOverlay, registerCountdownOverlayIpc } from './countdown-overlay'
+import { destroyCameraOverlay, openCameraOverlay, registerCameraOverlayIpc } from './camera-overlay'
 import { destroyRecordingOverlay, openRecordingOverlay, registerRecordingOverlayIpc } from './recording-overlay'
+import { DEFAULT_CAPTURE_INPUT, parseCaptureIndices } from './capture-input'
+import { ensureSupportedMacOs } from './macos-version'
 import { uploadRecordingToGcs } from './gcs-upload'
 import { recordingElapsedSeconds } from './recording-duration'
+import { formatRecordingElapsed } from './format-recording-elapsed'
+import { isPathInsideRecordingStagingDir, recordingStagingDir } from './recording-staging'
 import { purgeLegacyRecentRecordingStore } from './recent-recordings'
+import { isSafeHttpsRecordingUrl } from './safe-recording-url'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -77,15 +83,18 @@ registerRecordingOverlayIpc({
   viteDevServerUrl,
 })
 
+registerCameraOverlayIpc({
+  preloadPath: path.join(__dirname, 'preload.mjs'),
+  rendererDist,
+  viteDevServerUrl,
+})
+
 let mainWindow: BrowserWindow | null = null
 let tray: Tray | null = null
 
 let recordingStartedAtMs: number | null = null
 let trayRecordingTick: ReturnType<typeof setInterval> | null = null
 let lastShareUrl: string | null = null
-
-/** Default `displayIndex:audioIndex` when the renderer omits `captureInput`. */
-const DEFAULT_CAPTURE_INPUT = '0:0'
 
 type CaptureDevice = { index: number; name: string; displayId?: number }
 
@@ -96,31 +105,6 @@ let recordingPaused = false
 let restartPending = false
 let recordingPausedAtMs: number | null = null
 let recordingPausedTotalMs = 0
-
-function parseMacOsMajor(systemVersion: string): number | null {
-  // Electron's `app.getSystemVersion()` returns e.g. "10.15.7", "13.6.4", "14.5"
-  const rawMajor = systemVersion.split('.')[0]?.trim()
-  if (!rawMajor) return null
-  const major = Number.parseInt(rawMajor, 10)
-  return Number.isFinite(major) ? major : null
-}
-
-function ensureSupportedMacOs(): { ok: true } | { ok: false; error: string } {
-  if (process.platform !== 'darwin') {
-    return { ok: false, error: 'Screen recording is only supported on macOS.' }
-  }
-  // Electron exposes system version via `process.getSystemVersion()` in the main process.
-  const sysVer = typeof process.getSystemVersion === 'function' ? process.getSystemVersion() : ''
-  const major = parseMacOsMajor(sysVer)
-  // ScreenCaptureKit is macOS 12.3+, but this app targets modern macOS and is documented as 13+.
-  if (major != null && major < 13) {
-    return {
-      ok: false,
-      error: `Unsupported macOS version (${sysVer || 'unknown'}). Screen Record requires macOS 13+ (ScreenCaptureKit).`,
-    }
-  }
-  return { ok: true }
-}
 
 function resolveSckRecorderPath(): string | null {
   if (process.platform !== 'darwin') return null
@@ -207,13 +191,13 @@ function spawnCollectUtf8(
 }
 
 let cachedDevices:
-  | { atMs: number; data: { video: CaptureDevice[]; audio: CaptureDevice[] } }
+  | { atMs: number; data: { video: CaptureDevice[]; audio: CaptureDevice[]; cameras: CaptureDevice[] } }
   | null = null
 
 async function listSckDevices(
   sckPath: string,
   opts: { cacheMaxAgeMs: number } = { cacheMaxAgeMs: 2000 },
-): Promise<{ video: CaptureDevice[]; audio: CaptureDevice[] } | null> {
+): Promise<{ video: CaptureDevice[]; audio: CaptureDevice[]; cameras: CaptureDevice[] } | null> {
   const now = Date.now()
   if (cachedDevices && now - cachedDevices.atMs <= opts.cacheMaxAgeMs) {
     return cachedDevices.data
@@ -226,9 +210,17 @@ async function listSckDevices(
   const trimmed = r.stdout.trim()
   if (trimmed.length === 0) return null
   try {
-    const o = JSON.parse(trimmed) as { video?: CaptureDevice[]; audio?: CaptureDevice[] }
+    const o = JSON.parse(trimmed) as {
+      video?: CaptureDevice[]
+      audio?: CaptureDevice[]
+      cameras?: CaptureDevice[]
+    }
     if (!Array.isArray(o.video) || !Array.isArray(o.audio)) return null
-    const data = { video: o.video, audio: o.audio }
+    const data = {
+      video: o.video,
+      audio: o.audio,
+      cameras: Array.isArray(o.cameras) ? o.cameras : [],
+    }
     cachedDevices = { atMs: now, data }
     return data
   } catch {
@@ -277,22 +269,6 @@ async function captureDisplayScreenshot(
   } catch {
     return { ok: false, error: 'Could not parse screenshot JSON.' }
   }
-}
-
-function parseCaptureIndices(input: string): { video: number; audio: number } {
-  const parts = input.split(':')
-  const video = Number.parseInt(parts[0] ?? '', 10)
-  const audio = Number.parseInt(parts[1] ?? '', 10)
-  if (Number.isNaN(video) || Number.isNaN(audio)) {
-    const [dv, da] = DEFAULT_CAPTURE_INPUT.split(':')
-    return { video: Number.parseInt(dv!, 10), audio: Number.parseInt(da!, 10) }
-  }
-  return { video, audio }
-}
-
-/** Temp staging dir for recorder output; file is removed after a successful GCS upload. */
-function recordingStagingDir(): string {
-  return path.join(tmpdir(), 'screen-record')
 }
 
 function defaultOutputPath(): string {
@@ -388,18 +364,6 @@ function clearTrayRecordingTick() {
     clearInterval(trayRecordingTick)
     trayRecordingTick = null
   }
-}
-
-/** `mm:ss` or `h:mm:ss` for the tray title / tooltip while recording. */
-function formatRecordingElapsed(ms: number): string {
-  const totalSec = Math.max(0, Math.floor(ms / 1000))
-  const h = Math.floor(totalSec / 3600)
-  const m = Math.floor((totalSec % 3600) / 60)
-  const s = totalSec % 60
-  if (h > 0) {
-    return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
-  }
-  return `${m}:${String(s).padStart(2, '0')}`
 }
 
 function applyTrayRecordingPresentation() {
@@ -571,6 +535,7 @@ function createWindow() {
     mainWindow = null
     destroyCountdownOverlay()
     destroyRecordingOverlay()
+    destroyCameraOverlay()
   })
 
   if (viteDevServerUrl) {
@@ -682,7 +647,7 @@ ipcMain.handle('recording:resolveSck', (): { path: string } | { path: null; erro
 ipcMain.handle(
   'recording:listCaptureDevices',
   async (): Promise<
-    | { ok: true; video: CaptureDevice[]; audio: CaptureDevice[] }
+    | { ok: true; video: CaptureDevice[]; audio: CaptureDevice[]; cameras: CaptureDevice[] }
     | { ok: false; error: string }
   > => {
     const supported = ensureSupportedMacOs()
@@ -697,7 +662,7 @@ ipcMain.handle(
     }
     const listed = await listSckDevices(sckPath)
     if (listed && (listed.video.length > 0 || listed.audio.length > 0)) {
-      return { ok: true, video: listed.video, audio: listed.audio }
+      return { ok: true, video: listed.video, audio: listed.audio, cameras: listed.cameras }
     }
     return {
       ok: false,
@@ -769,7 +734,7 @@ ipcMain.handle(
     }
 
     const captureInput = options.captureInput?.trim() || DEFAULT_CAPTURE_INPUT
-    const { video: displayIdx, audio: audioIdx } = parseCaptureIndices(captureInput)
+    const { video: displayIdx, audio: audioIdx, camera: cameraIdx } = parseCaptureIndices(captureInput)
     const outputPath = defaultOutputPath()
 
     try {
@@ -779,11 +744,20 @@ ipcMain.handle(
       return { ok: false, error: `Could not create temp recording directory: ${msg}` }
     }
 
-    const child = spawn(
-      sckPath,
-      ['--output', outputPath, '--display', String(displayIdx), '--audio', String(audioIdx)],
-      { stdio: ['ignore', 'ignore', 'pipe'] },
-    )
+    const spawnArgs = [
+      '--output',
+      outputPath,
+      '--display',
+      String(displayIdx),
+      '--audio',
+      String(audioIdx),
+      '--exclude-pid',
+      String(process.pid),
+    ]
+    if (cameraIdx >= 0) {
+      spawnArgs.push('--camera', String(cameraIdx))
+    }
+    const child = spawn(sckPath, spawnArgs, { stdio: ['ignore', 'ignore', 'pipe'] })
 
     recordingChild = child
     recordingOutputPath = outputPath
@@ -792,6 +766,9 @@ ipcMain.handle(
     const startedAtMs = recordingStartedAtMs ?? Date.now()
 
     void openRecordingOverlay(startedAtMs, displayIdx)
+    if (cameraIdx >= 0) {
+      void openCameraOverlay(cameraIdx, displayIdx)
+    }
 
     const sender = event.sender
     forwardStderrToRenderer(sender, 'Using ScreenCaptureKit (sck-record).\n')
@@ -809,6 +786,7 @@ ipcMain.handle(
       forwardStderrToRenderer(sender, `Recorder process error: ${err.message}\n`)
       stopTrayRecordingPresentation()
       destroyRecordingOverlay()
+      destroyCameraOverlay()
       updateTrayMenu()
       showMainWindow()
     })
@@ -835,6 +813,7 @@ ipcMain.handle(
           : undefined
       stopTrayRecordingPresentation()
       destroyRecordingOverlay()
+      destroyCameraOverlay()
       forwardRecordingEnded(sender, { code, signal, ...(wasCancelled ? { cancelled: true } : {}) })
       updateTrayMenu()
       showMainWindow()
@@ -1006,18 +985,6 @@ ipcMain.handle(
   },
 )
 
-function isSafeHttpsRecordingUrl(url: string): boolean {
-  try {
-    const u = new URL(url)
-    if (u.protocol !== 'https:') return false
-    if (u.hostname === 'storage.googleapis.com') return true
-    if (u.hostname.endsWith('.storage.googleapis.com')) return true
-    return false
-  } catch {
-    return false
-  }
-}
-
 ipcMain.handle(
   'shell:openExternal',
   async (_event, url: unknown): Promise<{ ok: true } | { ok: false; error: string }> => {
@@ -1037,12 +1004,6 @@ ipcMain.handle(
     }
   },
 )
-
-function isPathInsideRecordingStagingDir(filePath: string): boolean {
-  const abs = path.resolve(filePath)
-  const root = path.resolve(recordingStagingDir())
-  return abs === root || abs.startsWith(root + path.sep)
-}
 
 ipcMain.handle(
   'recording:revealInFinder',
@@ -1065,6 +1026,7 @@ ipcMain.handle(
 function stopRecordingOnQuit() {
   destroyCountdownOverlay()
   destroyRecordingOverlay()
+  destroyCameraOverlay()
   if (recordingChild && !recordingChild.killed) {
     recordingChild.kill('SIGINT')
   }

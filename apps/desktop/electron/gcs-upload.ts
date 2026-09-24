@@ -1,8 +1,5 @@
-import { basename } from 'node:path'
 import { Storage } from '@google-cloud/storage'
-
-/** Object key prefix inside the bucket (e.g. `recordings/recording_….mp4`). */
-const GCS_OBJECT_PREFIX = 'recordings'
+import { gcsRecordingObjectName } from './gcs-recording-path'
 
 /**
  * Upload finished recordings to Google Cloud Storage and return the canonical **public** HTTPS URL.
@@ -36,7 +33,7 @@ export async function uploadRecordingToGcs(
     }
   }
 
-  const objectName = `${GCS_OBJECT_PREFIX}/${basename(localPath)}`
+  const objectName = gcsRecordingObjectName(localPath)
 
   try {
     const storage = new Storage()

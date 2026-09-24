@@ -1,5 +1,10 @@
 import path from 'node:path'
 import { BrowserWindow, ipcMain, screen } from 'electron'
+import {
+  clampBoundsToWorkArea,
+  RECORDING_OVERLAY_MARGIN,
+  recordingOverlayDefaultBounds,
+} from './overlay-bounds'
 
 export type RecordingOverlayPaths = {
   preloadPath: string
@@ -17,6 +22,9 @@ let overlayPendingDisplayIndex: number | null = null
 
 let ipcRegistered = false
 
+/** Target display for clamping drag bounds. */
+let overlayActiveDisplayIndex: number | null = null
+
 function displayForIndex(displayIndex: number | null): Electron.Display {
   const displays = screen.getAllDisplays()
   if (displays.length === 0) return screen.getPrimaryDisplay()
@@ -25,6 +33,29 @@ function displayForIndex(displayIndex: number | null): Electron.Display {
   }
   const i = Math.trunc(displayIndex)
   return displays[i] ?? screen.getPrimaryDisplay()
+}
+
+function clampBoundsToDisplay(
+  bounds: Electron.Rectangle,
+  displayIndex: number | null,
+): Electron.Rectangle {
+  return clampBoundsToWorkArea(bounds, displayForIndex(displayIndex).workArea, RECORDING_OVERLAY_MARGIN)
+}
+
+function defaultOverlayBounds(displayIndex: number | null): Electron.Rectangle {
+  return recordingOverlayDefaultBounds(displayForIndex(displayIndex).workArea, RECORDING_OVERLAY_MARGIN)
+}
+
+function moveOverlayBy(deltaX: number, deltaY: number): void {
+  if (!overlayWindow || overlayWindow.isDestroyed()) return
+  const current = overlayWindow.getBounds()
+  overlayWindow.setBounds(
+    clampBoundsToDisplay(
+      { ...current, x: current.x + deltaX, y: current.y + deltaY },
+      overlayActiveDisplayIndex,
+    ),
+    false,
+  )
 }
 
 function destroyOverlayWindow() {
@@ -41,26 +72,18 @@ function createOverlayWindow(): Promise<void> {
   const { preloadPath, rendererDist, viteDevServerUrl } = paths
 
   return new Promise((resolve, reject) => {
-    const d = displayForIndex(overlayPendingDisplayIndex)
-    const area = d.workArea
-
-    // Loom-style horizontal control pill on the recorded display.
-    const width = 420
-    const height = 52
-    const marginX = 12
-    const marginY = 12
-    const x = area.x + marginX
-    const y = area.y + marginY
+    overlayActiveDisplayIndex = overlayPendingDisplayIndex
+    const bounds = defaultOverlayBounds(overlayActiveDisplayIndex)
 
     const win = new BrowserWindow({
-      x,
-      y,
-      width,
-      height,
+      x: bounds.x,
+      y: bounds.y,
+      width: bounds.width,
+      height: bounds.height,
       frame: false,
       transparent: true,
       resizable: false,
-      movable: true,
+      movable: false,
       minimizable: false,
       maximizable: false,
       closable: false,
@@ -165,12 +188,27 @@ export function registerRecordingOverlayIpc(p: RecordingOverlayPaths): void {
     return typeof v === 'number' ? v : null
   })
 
+  ipcMain.handle(
+    'recordingOverlay:move-by',
+    (event, deltaX: unknown, deltaY: unknown): { ok: true } | { ok: false; error: string } => {
+      if (!overlayWindow || overlayWindow.isDestroyed() || event.sender !== overlayWindow.webContents) {
+        return { ok: false, error: 'Recording overlay is not open.' }
+      }
+      if (typeof deltaX !== 'number' || typeof deltaY !== 'number' || !Number.isFinite(deltaX) || !Number.isFinite(deltaY)) {
+        return { ok: false, error: 'Invalid drag delta.' }
+      }
+      moveOverlayBy(deltaX, deltaY)
+      return { ok: true }
+    },
+  )
+
   ipcMain.handle('recordingOverlay:close', () => {
     destroyOverlayWindow()
   })
 }
 
 export function destroyRecordingOverlay(): void {
+  overlayActiveDisplayIndex = null
   destroyOverlayWindow()
 }
 

@@ -38,7 +38,7 @@ export type RecordingGcsUploadPayload =
 export type CaptureDevice = { index: number; name: string; displayId?: number }
 
 export type ListCaptureDevicesResult =
-  | { ok: true; video: CaptureDevice[]; audio: CaptureDevice[] }
+  | { ok: true; video: CaptureDevice[]; audio: CaptureDevice[]; cameras: CaptureDevice[] }
   | { ok: false; error: string }
 
 export type CaptureDisplayScreenshotResult =
@@ -98,6 +98,7 @@ const overlay: ElectronOverlayAPI = {
 export type ElectronRecordingOverlayAPI = {
   open: (startedAtMs: number, displayIndex?: number | null) => Promise<OpenRecordingOverlayResult>
   pullInitial: () => Promise<number | null>
+  moveBy: (deltaX: number, deltaY: number) => Promise<{ ok: true } | { ok: false; error: string }>
   close: () => Promise<void>
   stop: () => Promise<StopRecordingResult>
   cancel: () => Promise<CancelRecordingResult>
@@ -106,16 +107,42 @@ export type ElectronRecordingOverlayAPI = {
   restart: () => Promise<RestartRecordingResult>
 }
 
+export type CameraOverlaySize = 'small' | 'large'
+
+export type CameraOverlayInitial = {
+  cameraIndex: number
+  size: CameraOverlaySize
+}
+
+export type ElectronCameraOverlayAPI = {
+  pullInitial: () => Promise<CameraOverlayInitial | null>
+  setSize: (
+    size: CameraOverlaySize,
+  ) => Promise<{ ok: true; size: CameraOverlaySize } | { ok: false; error: string }>
+  moveBy: (deltaX: number, deltaY: number) => Promise<{ ok: true } | { ok: false; error: string }>
+  close: () => Promise<void>
+}
+
 const recordingOverlay: ElectronRecordingOverlayAPI = {
   open: (startedAtMs: number, displayIndex?: number | null) =>
     ipcRenderer.invoke('recordingOverlay:open', startedAtMs, displayIndex ?? null),
   pullInitial: () => ipcRenderer.invoke('recordingOverlay:pull-initial'),
+  moveBy: (deltaX: number, deltaY: number) =>
+    ipcRenderer.invoke('recordingOverlay:move-by', deltaX, deltaY),
   close: () => ipcRenderer.invoke('recordingOverlay:close'),
   stop: () => ipcRenderer.invoke('recording:stop'),
   cancel: () => ipcRenderer.invoke('recording:cancel'),
   pause: () => ipcRenderer.invoke('recording:pause'),
   resume: () => ipcRenderer.invoke('recording:resume'),
   restart: () => ipcRenderer.invoke('recording:restart'),
+}
+
+const cameraOverlay: ElectronCameraOverlayAPI = {
+  pullInitial: () => ipcRenderer.invoke('cameraOverlay:pull-initial'),
+  setSize: (size: CameraOverlaySize) => ipcRenderer.invoke('cameraOverlay:set-size', size),
+  moveBy: (deltaX: number, deltaY: number) =>
+    ipcRenderer.invoke('cameraOverlay:move-by', deltaX, deltaY),
+  close: () => ipcRenderer.invoke('cameraOverlay:close'),
 }
 
 contextBridge.exposeInMainWorld('electronAPI', {
@@ -128,6 +155,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   overlay,
   recordingOverlay,
+  cameraOverlay,
 
   resolveSckRecorderPath: (): Promise<ResolveSckRecorderResult> =>
     ipcRenderer.invoke('recording:resolveSck'),

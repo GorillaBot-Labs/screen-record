@@ -1,0 +1,40 @@
+/* Shared shell for transparent Electron overlay windows (do not import index.css here). */
+:root {
+  --danger: #dc2626;
+  --accent-muted: rgba(98, 93, 245, 0.35);
+  --overlay-bg: rgba(24, 24, 27, 0.52);
+  background: transparent;
+  color-scheme: dark;
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  width: 100%;
+  height: 100%;
+  min-height: 100%;
+  background: transparent;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+button {
+  font: inherit;
+}
+
+button:not(:disabled) {
+  cursor: pointer;
+}
+
+.recording-overlay-shell {
+  width: 100%;
+  height: 100%;
+  background: transparent;
+}

@@ -6,6 +6,23 @@ on:
   pull_request:
 
 jobs:
+  desktop:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Desktop unit tests
+        run: npm run test:desktop
+
   web:
     runs-on: ubuntu-latest
 

@@ -1,4 +1,6 @@
 /* Studio recorder — aligned with web gallery tokens (zinc + purple accent) */
+@import './countdown-overlay.css';
+
 :root {
   --font: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
   --radius-sm: 8px;
@@ -372,6 +374,28 @@ body {
   color: var(--text-muted);
 }
 
+.studio-field-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.studio-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  cursor: pointer;
+  user-select: none;
+}
+
+.studio-toggle input {
+  accent-color: var(--accent);
+}
+
 .studio-screens {
   display: flex;
   flex-direction: column;
@@ -568,53 +592,4 @@ body {
   font-size: 0.8125rem;
   font-weight: 650;
   color: var(--text);
-}
-
-/* —— Countdown fallback (no Electron bridge) —— */
-.countdown-overlay {
-  position: fixed;
-  inset: 0;
-  z-index: 9999;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 1.5rem;
-  background: var(--overlay-bg);
-  backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
-}
-
-.countdown-overlay-label {
-  margin: 0;
-  font-size: 0.9375rem;
-  font-weight: 500;
-  letter-spacing: 0.02em;
-  color: rgba(255, 255, 255, 0.82);
-}
-
-.countdown-overlay-digit {
-  margin: 0;
-  font-size: clamp(6rem, 28vw, 14rem);
-  font-weight: 700;
-  line-height: 1;
-  letter-spacing: -0.04em;
-  color: #ffffff;
-  text-shadow: 0 0 80px rgba(98, 93, 245, 0.35);
-  animation: countdown-pop 0.85s cubic-bezier(0.22, 1, 0.36, 1) both;
-}
-
-@keyframes countdown-pop {
-  0% {
-    opacity: 0;
-    transform: scale(0.65);
-  }
-  55% {
-    opacity: 1;
-    transform: scale(1.06);
-  }
-  100% {
-    opacity: 1;
-    transform: scale(1);
-  }
 }

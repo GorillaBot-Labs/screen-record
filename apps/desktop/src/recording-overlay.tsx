@@ -1,25 +1,20 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import { Pause, Play, RotateCcw, Square, X } from 'lucide-react'
 
-import './index.css'
-import './recording-overlay.css'
+import { formatRecordingElapsed } from '../electron/format-recording-elapsed'
 
-function formatElapsed(ms: number): string {
-  const totalSec = Math.max(0, Math.floor(ms / 1000))
-  const h = Math.floor(totalSec / 3600)
-  const m = Math.floor((totalSec % 3600) / 60)
-  const s = totalSec % 60
-  if (h > 0) return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
-  return `${m}:${String(s).padStart(2, '0')}`
-}
+import './overlay-base.css'
+import './recording-overlay.css'
 
 function RecordingOverlayApp() {
   const api = window.electronAPI?.recordingOverlay
   const [startedAtMs, setStartedAtMs] = useState<number | null>(null)
   const [paused, setPaused] = useState(false)
   const [elapsedMs, setElapsedMs] = useState(0)
+  const [dragging, setDragging] = useState(false)
   const lastTickMsRef = useRef<number | null>(null)
+  const dragRef = useRef<{ pointerId: number; lastX: number; lastY: number } | null>(null)
 
   useEffect(() => {
     if (!api?.pullInitial) return
@@ -52,6 +47,42 @@ function RecordingOverlayApp() {
     if (startedAtMs == null) return null
     return elapsedMs
   }, [elapsedMs, startedAtMs])
+
+  const handlePointerDown = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    if (event.button !== 0) return
+    if ((event.target as HTMLElement).closest('.recording-overlay-actions')) return
+    dragRef.current = {
+      pointerId: event.pointerId,
+      lastX: event.screenX,
+      lastY: event.screenY,
+    }
+    setDragging(true)
+    event.currentTarget.setPointerCapture(event.pointerId)
+  }, [])
+
+  const handlePointerMove = useCallback(
+    (event: React.PointerEvent<HTMLDivElement>) => {
+      const drag = dragRef.current
+      if (!drag || drag.pointerId !== event.pointerId || !api?.moveBy) return
+      const deltaX = event.screenX - drag.lastX
+      const deltaY = event.screenY - drag.lastY
+      if (deltaX === 0 && deltaY === 0) return
+      drag.lastX = event.screenX
+      drag.lastY = event.screenY
+      void api.moveBy(deltaX, deltaY)
+    },
+    [api],
+  )
+
+  const endDrag = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    const drag = dragRef.current
+    if (!drag || drag.pointerId !== event.pointerId) return
+    dragRef.current = null
+    setDragging(false)
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId)
+    }
+  }, [])
 
   async function handleStop() {
     await api?.stop?.()
@@ -86,56 +117,72 @@ function RecordingOverlayApp() {
   }
 
   if (startedAtMs == null || elapsed == null) {
-    return <div className="recording-overlay" aria-hidden />
+    return (
+      <div className="recording-overlay-shell" aria-hidden>
+        <div className="recording-overlay" />
+      </div>
+    )
   }
 
   return (
-    <div className="recording-overlay" role="toolbar" aria-label="Recording controls">
-      <div className="recording-overlay-status">
-        <div className="recording-overlay-dot" aria-hidden />
-        <time className="recording-overlay-time" aria-live="polite">
-          {formatElapsed(elapsed)}
-        </time>
-      </div>
+    <div className="recording-overlay-shell">
+      <div
+        className={
+          dragging ? 'recording-overlay recording-overlay--dragging' : 'recording-overlay'
+        }
+        role="toolbar"
+        aria-label="Recording controls"
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={endDrag}
+        onPointerCancel={endDrag}
+      >
+        <div className="recording-overlay-status">
+          <div className="recording-overlay-dot" aria-hidden />
+          <time className="recording-overlay-time" aria-live="polite">
+            {formatRecordingElapsed(elapsed)}
+          </time>
+        </div>
 
-      <div className="recording-overlay-divider" aria-hidden />
+        <div className="recording-overlay-divider" aria-hidden />
 
-      <div className="recording-overlay-actions">
-        <button
-          type="button"
-          className="recording-overlay-btn"
-          onClick={handleTogglePause}
-          aria-label={paused ? 'Resume recording' : 'Pause recording'}
-        >
-          {paused ? <Play size={16} aria-hidden /> : <Pause size={16} aria-hidden />}
-        </button>
+        <div className="recording-overlay-actions">
+          <button
+            type="button"
+            className="recording-overlay-btn"
+            onClick={handleTogglePause}
+            aria-label={paused ? 'Resume recording' : 'Pause recording'}
+          >
+            {paused ? <Play size={16} aria-hidden /> : <Pause size={16} aria-hidden />}
+          </button>
 
-        <button
-          type="button"
-          className="recording-overlay-btn recording-overlay-btn--stop"
-          onClick={handleStop}
-          aria-label="Stop recording"
-        >
-          <Square size={14} fill="currentColor" aria-hidden />
-        </button>
+          <button
+            type="button"
+            className="recording-overlay-btn recording-overlay-btn--stop"
+            onClick={handleStop}
+            aria-label="Stop recording"
+          >
+            <Square size={14} fill="currentColor" aria-hidden />
+          </button>
 
-        <button
-          type="button"
-          className="recording-overlay-btn"
-          onClick={handleRestart}
-          aria-label="Restart recording"
-        >
-          <RotateCcw size={16} aria-hidden />
-        </button>
+          <button
+            type="button"
+            className="recording-overlay-btn"
+            onClick={handleRestart}
+            aria-label="Restart recording"
+          >
+            <RotateCcw size={16} aria-hidden />
+          </button>
 
-        <button
-          type="button"
-          className="recording-overlay-btn recording-overlay-btn--cancel"
-          onClick={handleCancel}
-          aria-label="Cancel recording"
-        >
-          <X size={16} aria-hidden />
-        </button>
+          <button
+            type="button"
+            className="recording-overlay-btn recording-overlay-btn--cancel"
+            onClick={handleCancel}
+            aria-label="Cancel recording"
+          >
+            <X size={16} aria-hidden />
+          </button>
+        </div>
       </div>
     </div>
   )

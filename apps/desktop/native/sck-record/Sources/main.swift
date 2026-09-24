@@ -7,8 +7,8 @@ import ImageIO
 import ScreenCaptureKit
 import UniformTypeIdentifiers
 
-// ScreenCaptureKit (display) + AVCapture (mic) → MP4. Spawned by Electron on macOS.
-// Usage: sck-record --output <file.mp4> --display <n> --audio <n>
+// ScreenCaptureKit (display) + AVCapture (mic + optional camera) → MP4. Spawned by Electron on macOS.
+// Usage: sck-record --output <file.mp4> --display <n> --audio <n> [--camera <n>] [--exclude-pid <pid>]
 
 private func pngData(from pixelBuffer: CVPixelBuffer) -> Data? {
   let ci = CIImage(cvPixelBuffer: pixelBuffer)
@@ -23,7 +23,6 @@ private func pngData(from pixelBuffer: CVPixelBuffer) -> Data? {
   return out as Data
 }
 
-/// Discovery-based listing (replaces deprecated `AVCaptureDevice.devices(for: .audio)`).
 private func sortedAudioCaptureDevices() -> [AVCaptureDevice] {
   let deviceTypes: [AVCaptureDevice.DeviceType]
   if #available(macOS 14.0, *) {
@@ -39,21 +38,39 @@ private func sortedAudioCaptureDevices() -> [AVCaptureDevice] {
   return session.devices.sorted { $0.uniqueID < $1.uniqueID }
 }
 
+private func sortedCameraCaptureDevices() -> [AVCaptureDevice] {
+  let deviceTypes: [AVCaptureDevice.DeviceType]
+  if #available(macOS 14.0, *) {
+    deviceTypes = [.builtInWideAngleCamera, .externalUnknown, .continuityCamera]
+  } else {
+    deviceTypes = [.builtInWideAngleCamera, .externalUnknown]
+  }
+  let session = AVCaptureDevice.DiscoverySession(
+    deviceTypes: deviceTypes,
+    mediaType: .video,
+    position: .unspecified,
+  )
+  return session.devices.sorted { $0.uniqueID < $1.uniqueID }
+}
+
 enum RecordError: Error, CustomStringConvertible {
   case usage
   case badDisplay(Int, Int)
   case badAudio(Int, Int)
+  case badCamera(Int, Int)
   case screenshot(String)
   case writer(String)
 
   var description: String {
     switch self {
     case .usage:
-      return "Usage: sck-record --output <file.mp4> --display <n> --audio <n> (or --list-json, or --screenshot-json --display <n>)"
+      return "Usage: sck-record --output <file.mp4> --display <n> --audio <n> [--camera <n>] [--exclude-pid <pid>] (or --list-json, or --screenshot-json --display <n>)"
     case let .badDisplay(i, max):
       return "Display index \(i) out of range (0..<\(max))"
     case let .badAudio(i, max):
       return "Audio device index \(i) out of range (0..<\(max))"
+    case let .badCamera(i, max):
+      return "Camera index \(i) out of range (0..<\(max))"
     case .screenshot(let m):
       return "Screenshot failed: \(m)"
     case .writer(let m): return "AVAssetWriter: \(m)"
@@ -61,13 +78,37 @@ enum RecordError: Error, CustomStringConvertible {
   }
 }
 
-private final class Bridge: NSObject, SCStreamOutput, AVCaptureAudioDataOutputSampleBufferDelegate {
+private func cameraOrientation(from sampleBuffer: CMSampleBuffer) -> CGImagePropertyOrientation {
+  if let raw = CMGetAttachment(sampleBuffer, key: kCGImagePropertyOrientation, attachmentModeOut: nil) as? UInt32,
+     let orientation = CGImagePropertyOrientation(rawValue: raw)
+  {
+    return orientation
+  }
+  return .up
+}
+
+private func mirrorHorizontally(_ image: CIImage) -> CIImage {
+  let extent = image.extent
+  return image.transformed(
+    by: CGAffineTransform(translationX: extent.width, y: 0).scaledBy(x: -1, y: 1),
+  )
+}
+
+private final class Bridge: NSObject, SCStreamOutput, AVCaptureAudioDataOutputSampleBufferDelegate,
+  AVCaptureVideoDataOutputSampleBufferDelegate
+{
   let onVideo: (CMSampleBuffer, SCStreamOutputType) -> Void
   let onAudio: (CMSampleBuffer) -> Void
+  let onCamera: (CVPixelBuffer, CGImagePropertyOrientation) -> Void
 
-  init(onVideo: @escaping (CMSampleBuffer, SCStreamOutputType) -> Void, onAudio: @escaping (CMSampleBuffer) -> Void) {
+  init(
+    onVideo: @escaping (CMSampleBuffer, SCStreamOutputType) -> Void,
+    onAudio: @escaping (CMSampleBuffer) -> Void,
+    onCamera: @escaping (CVPixelBuffer, CGImagePropertyOrientation) -> Void,
+  ) {
     self.onVideo = onVideo
     self.onAudio = onAudio
+    self.onCamera = onCamera
   }
 
   func stream(_ stream: SCStream, didOutputSampleBuffer sampleBuffer: CMSampleBuffer, of type: SCStreamOutputType) {
@@ -79,16 +120,24 @@ private final class Bridge: NSObject, SCStreamOutput, AVCaptureAudioDataOutputSa
     didOutput sampleBuffer: CMSampleBuffer,
     from connection: AVCaptureConnection
   ) {
+    if output is AVCaptureVideoDataOutput {
+      guard let buf = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
+      onCamera(buf, cameraOrientation(from: sampleBuffer))
+      return
+    }
     onAudio(sampleBuffer)
   }
 }
 
-/// All mutation of writer inputs happens on `writerQueue` (SCStream + AVCapture deliver there).
 final class Recorder: @unchecked Sendable {
   private let outputURL: URL
   private let display: SCDisplay
   private let audioDevice: AVCaptureDevice
+  private let cameraDevice: AVCaptureDevice?
+  private let excludePid: pid_t?
   private let writerQueue = DispatchQueue(label: "sck-record.writer")
+  private let cameraLock = NSLock()
+  private let ciContext = CIContext(options: nil)
 
   private var assetWriter: AVAssetWriter!
   private var videoInput: AVAssetWriterInput!
@@ -97,23 +146,38 @@ final class Recorder: @unchecked Sendable {
   private var stream: SCStream?
   private var captureSession: AVCaptureSession?
 
+  private var latestCameraPixelBuffer: CVPixelBuffer?
+  private var latestCameraOrientation: CGImagePropertyOrientation = .up
   private var sessionStarted = false
   private var sessionStart: CMTime = .invalid
   private var stopping = false
+  private var encodeWidth = 0
+  private var encodeHeight = 0
 
-  init(outputURL: URL, display: SCDisplay, audioDevice: AVCaptureDevice) {
+  init(
+    outputURL: URL,
+    display: SCDisplay,
+    audioDevice: AVCaptureDevice,
+    cameraDevice: AVCaptureDevice?,
+    excludePid: pid_t?,
+  ) {
     self.outputURL = outputURL
     self.display = display
     self.audioDevice = audioDevice
+    self.cameraDevice = cameraDevice
+    self.excludePid = excludePid
   }
 
-  /// H.264 / 4:2:0 needs even size; VideoToolbox is happiest with multiple-of-16 (MacBook sizes are often odd, e.g. 1117).
   private static func encodeDimensions(_ display: SCDisplay) -> (Int, Int) {
     func floor16(_ x: Int) -> Int { max(16, (x / 16) * 16) }
     return (floor16(display.width), floor16(display.height))
   }
 
-  static func loadDevices(displayIndex: Int, audioIndex: Int) async throws -> (SCDisplay, AVCaptureDevice) {
+  static func loadDevices(
+    displayIndex: Int,
+    audioIndex: Int,
+    cameraIndex: Int?,
+  ) async throws -> (SCDisplay, AVCaptureDevice, AVCaptureDevice?) {
     let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
     let displays = content.displays.sorted { $0.displayID < $1.displayID }
     guard displayIndex >= 0, displayIndex < displays.count else {
@@ -123,7 +187,15 @@ final class Recorder: @unchecked Sendable {
     guard audioIndex >= 0, audioIndex < mics.count else {
       throw RecordError.badAudio(audioIndex, mics.count)
     }
-    return (displays[displayIndex], mics[audioIndex])
+    var camera: AVCaptureDevice?
+    if let cameraIndex, cameraIndex >= 0 {
+      let cameras = sortedCameraCaptureDevices()
+      guard cameraIndex < cameras.count else {
+        throw RecordError.badCamera(cameraIndex, cameras.count)
+      }
+      camera = cameras[cameraIndex]
+    }
+    return (displays[displayIndex], mics[audioIndex], camera)
   }
 
   func run() async throws {
@@ -131,6 +203,14 @@ final class Recorder: @unchecked Sendable {
       AVCaptureDevice.requestAccess(for: .audio) { ok in c.resume(returning: ok) }
     }
     guard micGranted else { throw RecordError.writer("Microphone access denied") }
+
+    if cameraDevice != nil {
+      let camGranted = await withCheckedContinuation { (c: CheckedContinuation<Bool, Never>) in
+        AVCaptureDevice.requestAccess(for: .video) { ok in c.resume(returning: ok) }
+      }
+      guard camGranted else { throw RecordError.writer("Camera access denied") }
+      fputs("sck-record: camera \(cameraDevice!.localizedName)\n", stderr)
+    }
 
     if FileManager.default.fileExists(atPath: outputURL.path) {
       try? FileManager.default.removeItem(at: outputURL)
@@ -142,12 +222,17 @@ final class Recorder: @unchecked Sendable {
       },
       onAudio: { [weak self] buf in
         self?.handleAudio(buf)
-      }
+      },
+      onCamera: { [weak self] buf, orientation in
+        self?.storeCameraFrame(buf, orientation: orientation)
+      },
     )
 
     assetWriter = try AVAssetWriter(url: outputURL, fileType: .mp4)
 
     let (w, h) = Self.encodeDimensions(display)
+    encodeWidth = w
+    encodeHeight = h
     if display.width != w || display.height != h {
       fputs(
         "sck-record: capture \(w)x\(h) (aligned from display \(display.width)x\(display.height)) for H.264\n",
@@ -185,7 +270,15 @@ final class Recorder: @unchecked Sendable {
       throw RecordError.writer(assetWriter.error?.localizedDescription ?? "startWriting failed")
     }
 
-    let filter = SCContentFilter(display: display, excludingApplications: [], exceptingWindows: [])
+    let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
+    var excludeApps: [SCRunningApplication] = []
+    if let excludePid {
+      excludeApps = content.applications.filter { $0.processID == excludePid }
+      if !excludeApps.isEmpty {
+        fputs("sck-record: excluding recorder UI (pid \(excludePid))\n", stderr)
+      }
+    }
+    let filter = SCContentFilter(display: display, excludingApplications: excludeApps, exceptingWindows: [])
     let cfg = SCStreamConfiguration()
     cfg.width = w
     cfg.height = h
@@ -203,13 +296,31 @@ final class Recorder: @unchecked Sendable {
     let session = AVCaptureSession()
     session.beginConfiguration()
     session.sessionPreset = .high
-    let input = try AVCaptureDeviceInput(device: audioDevice)
-    guard session.canAddInput(input) else { throw RecordError.writer("cannot add mic input") }
-    session.addInput(input)
-    let out = AVCaptureAudioDataOutput()
-    out.setSampleBufferDelegate(bridge, queue: writerQueue)
-    guard session.canAddOutput(out) else { throw RecordError.writer("cannot add mic output") }
-    session.addOutput(out)
+    let micInput = try AVCaptureDeviceInput(device: audioDevice)
+    guard session.canAddInput(micInput) else { throw RecordError.writer("cannot add mic input") }
+    session.addInput(micInput)
+    let audioOut = AVCaptureAudioDataOutput()
+    audioOut.setSampleBufferDelegate(bridge, queue: writerQueue)
+    guard session.canAddOutput(audioOut) else { throw RecordError.writer("cannot add mic output") }
+    session.addOutput(audioOut)
+
+    if let cameraDevice {
+      let camInput = try AVCaptureDeviceInput(device: cameraDevice)
+      guard session.canAddInput(camInput) else { throw RecordError.writer("cannot add camera input") }
+      session.addInput(camInput)
+      let videoOut = AVCaptureVideoDataOutput()
+      videoOut.videoSettings = [
+        kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,
+      ]
+      videoOut.alwaysDiscardsLateVideoFrames = true
+      videoOut.setSampleBufferDelegate(bridge, queue: writerQueue)
+      guard session.canAddOutput(videoOut) else { throw RecordError.writer("cannot add camera output") }
+      session.addOutput(videoOut)
+      if let conn = videoOut.connection(with: .video), conn.isVideoMirroringSupported {
+        conn.isVideoMirrored = true
+      }
+    }
+
     session.commitConfiguration()
     captureSession = session
     session.startRunning()
@@ -252,16 +363,99 @@ final class Recorder: @unchecked Sendable {
     }
   }
 
+  private func storeCameraFrame(_ buffer: CVPixelBuffer, orientation: CGImagePropertyOrientation) {
+    cameraLock.lock()
+    latestCameraPixelBuffer = buffer
+    latestCameraOrientation = orientation
+    cameraLock.unlock()
+  }
+
+  private func circleMask(size: CGFloat) -> CIImage {
+    let radial = CIFilter(
+      name: "CIRadialGradient",
+      parameters: [
+        "inputCenter": CIVector(x: size / 2, y: size / 2),
+        "inputRadius0": (size / 2) - 0.5,
+        "inputRadius1": size / 2,
+        "inputColor0": CIColor.white,
+        "inputColor1": CIColor(red: 0, green: 0, blue: 0, alpha: 0),
+      ],
+    )!.outputImage!.cropped(to: CGRect(x: 0, y: 0, width: size, height: size))
+    return radial
+  }
+
+  private func compositeCamera(onto screenBuffer: CVPixelBuffer, width w: Int, height h: Int) {
+    cameraLock.lock()
+    let camBuf = latestCameraPixelBuffer
+    let orientation = latestCameraOrientation
+    cameraLock.unlock()
+    guard let camBuf else { return }
+
+    let margin: CGFloat = 20
+    let pipSize = min(max(CGFloat(w) * 0.18, 120), 220)
+
+    var camImage = CIImage(cvPixelBuffer: camBuf).oriented(forExifOrientation: Int32(orientation.rawValue))
+    camImage = mirrorHorizontally(camImage)
+    let camExtent = camImage.extent
+    let scale = max(pipSize / camExtent.width, pipSize / camExtent.height)
+    camImage = camImage.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
+    let scaled = camImage.extent
+    let cropRect = CGRect(
+      x: scaled.midX - pipSize / 2,
+      y: scaled.midY - pipSize / 2,
+      width: pipSize,
+      height: pipSize,
+    )
+    camImage = camImage.cropped(to: cropRect)
+    let tx = margin - cropRect.origin.x
+    let ty = margin - cropRect.origin.y
+    camImage = camImage.transformed(by: CGAffineTransform(translationX: tx, y: ty))
+
+    let mask = circleMask(size: pipSize)
+    if let masked = CIFilter(
+      name: "CIBlendWithMask",
+      parameters: [
+        kCIInputImageKey: camImage,
+        kCIInputBackgroundImageKey: CIImage.empty(),
+        kCIInputMaskImageKey: mask,
+      ],
+    )?.outputImage {
+      camImage = masked
+    }
+
+    let screenImage = CIImage(cvPixelBuffer: screenBuffer)
+    guard
+      let composited = CIFilter(
+        name: "CISourceOverCompositing",
+        parameters: [
+          kCIInputImageKey: camImage,
+          kCIInputBackgroundImageKey: screenImage,
+        ],
+      )?.outputImage
+    else { return }
+
+    ciContext.render(
+      composited,
+      to: screenBuffer,
+      bounds: CGRect(x: 0, y: 0, width: w, height: h),
+      colorSpace: CGColorSpaceCreateDeviceRGB(),
+    )
+  }
+
   private func handleVideo(_ sampleBuffer: CMSampleBuffer, type: SCStreamOutputType) {
     guard !stopping else { return }
     if type == .audio { return }
-    // Only append real video frames (some callbacks can carry non-video types).
-    guard CMSampleBufferIsValid(sampleBuffer), CMSampleBufferGetImageBuffer(sampleBuffer) != nil else { return }
+    guard CMSampleBufferIsValid(sampleBuffer), let imageBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else {
+      return
+    }
     let pts = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
     if !sessionStarted {
       sessionStart = pts
       assetWriter.startSession(atSourceTime: pts)
       sessionStarted = true
+    }
+    if cameraDevice != nil {
+      compositeCamera(onto: imageBuffer, width: encodeWidth, height: encodeHeight)
     }
     guard videoInput.isReadyForMoreMediaData else {
       fputs("sck-record: video input not ready, dropping frame\n", stderr)
@@ -293,6 +487,7 @@ private func printDeviceListJSON() async throws {
   let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
   let displays = content.displays.sorted { $0.displayID < $1.displayID }
   let mics = sortedAudioCaptureDevices()
+  let cameras = sortedCameraCaptureDevices()
   struct Entry: Codable {
     let index: Int
     let displayId: UInt32
@@ -301,6 +496,7 @@ private func printDeviceListJSON() async throws {
   struct Root: Codable {
     let video: [Entry]
     let audio: [Entry]
+    let cameras: [Entry]
   }
   let video = displays.enumerated().map { i, d -> Entry in
     let ew = max(16, (d.width / 16) * 16)
@@ -312,17 +508,22 @@ private func printDeviceListJSON() async throws {
   let audio = mics.enumerated().map { i, m in
     Entry(index: i, displayId: 0, name: m.localizedName)
   }
+  let cameraEntries = cameras.enumerated().map { i, c in
+    Entry(index: i, displayId: 0, name: c.localizedName)
+  }
   let enc = JSONEncoder()
   enc.outputFormatting = [.sortedKeys]
-  let data = try enc.encode(Root(video: video, audio: audio))
+  let data = try enc.encode(Root(video: video, audio: audio, cameras: cameraEntries))
   FileHandle.standardOutput.write(data)
   FileHandle.standardOutput.write(Data([10]))
 }
 
-private func parseArgs() throws -> (output: URL, display: Int, audio: Int) {
+private func parseArgs() throws -> (output: URL, display: Int, audio: Int, camera: Int?, excludePid: pid_t?) {
   var out: String?
   var d: Int?
   var a: Int?
+  var camera: Int?
+  var excludePid: pid_t?
   var i = CommandLine.arguments.makeIterator()
   _ = i.next()
   while let arg = i.next() {
@@ -333,12 +534,16 @@ private func parseArgs() throws -> (output: URL, display: Int, audio: Int) {
       if let v = i.next() { d = Int(v) }
     case "--audio":
       if let v = i.next() { a = Int(v) }
+    case "--camera":
+      if let v = i.next() { camera = Int(v) }
+    case "--exclude-pid":
+      if let v = i.next(), let p = Int32(v) { excludePid = pid_t(p) }
     default:
       break
     }
   }
   guard let path = out, let di = d, let ai = a else { throw RecordError.usage }
-  return (URL(fileURLWithPath: path), di, ai)
+  return (URL(fileURLWithPath: path), di, ai, camera, excludePid)
 }
 
 private func parseScreenshotArgs() throws -> (display: Int, maxWidth: Int?) {
@@ -408,7 +613,6 @@ private func printScreenshotJSON(displayIndex: Int, maxWidth: Int?) async throws
   let box = StreamBox()
 
   let done: Data = try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Data, Error>) in
-    // Fail fast if we don't get a frame quickly (avoids Electron hanging on `spawnSync`).
     Task {
       try? await Task.sleep(nanoseconds: 2_500_000_000)
       if once.tryMark() {
@@ -439,6 +643,7 @@ private func printScreenshotJSON(displayIndex: Int, maxWidth: Int?) async throws
         Task { try? await box.stream?.stopCapture() }
       },
       onAudio: { _ in },
+      onCamera: { _, _ in },
     )
 
     Task {
@@ -496,10 +701,20 @@ struct SckRecordMain {
       return
     }
     do {
-      let (url, dIdx, aIdx) = try parseArgs()
-      let (display, mic) = try await Recorder.loadDevices(displayIndex: dIdx, audioIndex: aIdx)
+      let (url, dIdx, aIdx, camIdx, excludePid) = try parseArgs()
+      let (display, mic, camera) = try await Recorder.loadDevices(
+        displayIndex: dIdx,
+        audioIndex: aIdx,
+        cameraIndex: camIdx,
+      )
       fputs("sck-record: display \(display.displayID) \(display.width)x\(display.height) mic \(mic.localizedName)\n", stderr)
-      let rec = Recorder(outputURL: url, display: display, audioDevice: mic)
+      let rec = Recorder(
+        outputURL: url,
+        display: display,
+        audioDevice: mic,
+        cameraDevice: camera,
+        excludePid: excludePid,
+      )
       try await rec.run()
       fputs("sck-record: finished \(url.path)\n", stderr)
     } catch {

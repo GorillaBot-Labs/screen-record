@@ -5,12 +5,15 @@ import {
   Mic,
   Monitor,
   RefreshCw,
+  Video,
 } from "lucide-react";
 
 import type { CaptureDevice } from "../electron/preload";
 
 const VIDEO_INDEX_STORAGE_KEY = "screen-record:avVideoIndex";
 const AUDIO_INDEX_STORAGE_KEY = "screen-record:avAudioIndex";
+const CAMERA_INDEX_STORAGE_KEY = "screen-record:cameraIndex";
+const CAMERA_ENABLED_STORAGE_KEY = "screen-record:cameraEnabled";
 /** Legacy single-field storage; migrated once into index keys when present. */
 const LEGACY_AV_INPUT_KEY = "screen-record:avfoundationInput";
 
@@ -79,6 +82,44 @@ function pickDefaultAudio(devices: CaptureDevice[]): number | null {
   return devices[0]!.index;
 }
 
+function pickDefaultCamera(devices: CaptureDevice[]): number | null {
+  if (devices.length === 0) return null;
+  if (devices.some((d) => d.index === 0)) return 0;
+  return devices[0]!.index;
+}
+
+function loadCameraEnabled(): boolean {
+  try {
+    const raw = localStorage.getItem(CAMERA_ENABLED_STORAGE_KEY);
+    if (raw == null) return true;
+    return raw !== "0" && raw !== "false";
+  } catch {
+    return true;
+  }
+}
+
+function persistCameraEnabled(enabled: boolean) {
+  try {
+    localStorage.setItem(CAMERA_ENABLED_STORAGE_KEY, enabled ? "1" : "0");
+  } catch {
+    /* ignore */
+  }
+}
+
+function captureInputForDevices(
+  videoIndex: number,
+  audioIndex: number,
+  cameraEnabled: boolean,
+  cameraIndex: number | null,
+  cameraDevices: CaptureDevice[],
+): string {
+  const cameraPart =
+    cameraEnabled && cameraIndex != null && cameraDevices.length > 0
+      ? String(cameraIndex)
+      : "-1";
+  return `${videoIndex}:${audioIndex}:${cameraPart}`;
+}
+
 function sortByIndex(devices: CaptureDevice[]): CaptureDevice[] {
   return [...devices].sort((a, b) => a.index - b.index);
 }
@@ -88,8 +129,11 @@ export default function App() {
   const [status, setStatus] = useState<string>("Idle");
   const [videoDevices, setVideoDevices] = useState<CaptureDevice[]>([]);
   const [audioDevices, setAudioDevices] = useState<CaptureDevice[]>([]);
+  const [cameraDevices, setCameraDevices] = useState<CaptureDevice[]>([]);
   const [videoIndex, setVideoIndex] = useState<number | null>(null);
   const [audioIndex, setAudioIndex] = useState<number | null>(null);
+  const [cameraIndex, setCameraIndex] = useState<number | null>(null);
+  const [cameraEnabled, setCameraEnabled] = useState(loadCameraEnabled);
   const [devicesLoading, setDevicesLoading] = useState(false);
   const [devicesError, setDevicesError] = useState<string | null>(null);
   const [outputPath, setOutputPath] = useState<string | null>(null);
@@ -120,18 +164,23 @@ export default function App() {
   );
 
   const applyDeviceSelection = useCallback(
-    (video: CaptureDevice[], audio: CaptureDevice[]) => {
+    (video: CaptureDevice[], audio: CaptureDevice[], cameras: CaptureDevice[]) => {
       const legacy = readLegacyAvPair();
       let v = loadStoredIndex(VIDEO_INDEX_STORAGE_KEY) ?? legacy?.v ?? null;
       let a = loadStoredIndex(AUDIO_INDEX_STORAGE_KEY) ?? legacy?.a ?? null;
+      let c = loadStoredIndex(CAMERA_INDEX_STORAGE_KEY) ?? null;
       if (v == null || !video.some((d) => d.index === v))
         v = pickDefaultVideo(video);
       if (a == null || !audio.some((d) => d.index === a))
         a = pickDefaultAudio(audio);
+      if (c == null || !cameras.some((d) => d.index === c))
+        c = pickDefaultCamera(cameras);
       setVideoIndex(v);
       setAudioIndex(a);
+      setCameraIndex(c);
       if (v != null) persistIndex(VIDEO_INDEX_STORAGE_KEY, v);
       if (a != null) persistIndex(AUDIO_INDEX_STORAGE_KEY, a);
+      if (c != null) persistIndex(CAMERA_INDEX_STORAGE_KEY, c);
     },
     [],
   );
@@ -154,23 +203,28 @@ export default function App() {
       setDevicesError(res.error);
       setVideoDevices([]);
       setAudioDevices([]);
+      setCameraDevices([]);
       setVideoIndex(null);
       setAudioIndex(null);
+      setCameraIndex(null);
       return;
     }
     const video = sortByIndex(res.video);
     const audio = sortByIndex(res.audio);
+    const cameras = sortByIndex(res.cameras ?? []);
     pushDiagnosticsEvent({
       kind: "devices.refresh.ok",
       data: {
         ms: Math.round(performance.now() - t0),
         videoCount: video.length,
         audioCount: audio.length,
+        cameraCount: cameras.length,
       },
     });
     setVideoDevices(video);
     setAudioDevices(audio);
-    applyDeviceSelection(video, audio);
+    setCameraDevices(cameras);
+    applyDeviceSelection(video, audio, cameras);
   }, [applyDeviceSelection, pushDiagnosticsEvent]);
 
   // Intentionally disabled: screenshot-based preview + readiness preflight.
@@ -300,6 +354,18 @@ export default function App() {
     persistIndex(AUDIO_INDEX_STORAGE_KEY, index);
   }
 
+  function handleCameraChange(index: number) {
+    pushDiagnosticsEvent({ kind: "devices.camera.select", data: { index } });
+    setCameraIndex(index);
+    persistIndex(CAMERA_INDEX_STORAGE_KEY, index);
+  }
+
+  function handleCameraEnabledChange(enabled: boolean) {
+    pushDiagnosticsEvent({ kind: "devices.camera.enabled", data: { enabled } });
+    setCameraEnabled(enabled);
+    persistCameraEnabled(enabled);
+  }
+
   const handleStart = useCallback(async () => {
     const api = window.electronAPI;
     if (!api) return;
@@ -356,7 +422,7 @@ export default function App() {
     try {
       pushDiagnosticsEvent({
         kind: "recording.start.sequence.begin",
-        data: { videoIndex, audioIndex },
+        data: { videoIndex, audioIndex, cameraIndex, cameraEnabled },
       });
       setCountdown(3);
       const overlayRes = await api.overlay.open(3, videoIndex);
@@ -397,7 +463,13 @@ export default function App() {
       logRef.current = "";
       setLog("");
       setStatus("Starting…");
-      const input = `${videoIndex}:${audioIndex}`;
+      const input = captureInputForDevices(
+        videoIndex,
+        audioIndex,
+        cameraEnabled,
+        cameraIndex,
+        cameraDevices,
+      );
       const t0 = performance.now();
       const res = await api.startRecording({ captureInput: input });
       if (res.ok) {
@@ -431,6 +503,9 @@ export default function App() {
   }, [
     audioDevices.length,
     audioIndex,
+    cameraDevices,
+    cameraEnabled,
+    cameraIndex,
     devicesError,
     devicesLoading,
     recording,
@@ -486,6 +561,9 @@ export default function App() {
       `audioDevices=${audioDevices.length}`,
       `videoIndex=${videoIndex ?? ""}`,
       `audioIndex=${audioIndex ?? ""}`,
+      `cameraEnabled=${String(cameraEnabled)}`,
+      `cameraDevices=${cameraDevices.length}`,
+      `cameraIndex=${cameraIndex ?? ""}`,
       `shareError=${shareError ?? ""}`,
       `outputPath=${outputPath ?? ""}`,
       "",
@@ -692,6 +770,50 @@ export default function App() {
                       </option>
                     ))}
                   </select>
+                </div>
+
+                <div className="studio-field">
+                  <div className="studio-field-head">
+                    <label htmlFor="av-camera" className="studio-field-label">
+                      <Video size={14} strokeWidth={2} aria-hidden />
+                      Camera
+                    </label>
+                    <label className="studio-toggle">
+                      <input
+                        type="checkbox"
+                        checked={cameraEnabled && cameraDevices.length > 0}
+                        onChange={(e) => handleCameraEnabledChange(e.target.checked)}
+                        disabled={setupLocked || cameraDevices.length === 0}
+                      />
+                      <span>On</span>
+                    </label>
+                  </div>
+                  <select
+                    id="av-camera"
+                    className="studio-select"
+                    value={cameraIndex ?? ""}
+                    onChange={(e) =>
+                      handleCameraChange(Number.parseInt(e.target.value, 10))
+                    }
+                    disabled={
+                      setupLocked ||
+                      cameraDevices.length === 0 ||
+                      !cameraEnabled
+                    }
+                  >
+                    {cameraDevices.map((d) => (
+                      <option key={d.index} value={d.index}>
+                        {d.name}
+                      </option>
+                    ))}
+                  </select>
+                  {cameraDevices.length === 0 ? (
+                    <p className="studio-setup-note">No camera detected.</p>
+                  ) : (
+                    <p className="studio-setup-note">
+                      Shows a small circle in the bottom-left while recording.
+                    </p>
+                  )}
                 </div>
               </>
             ) : null}

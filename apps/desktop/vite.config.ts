@@ -24,6 +24,7 @@ export default defineConfig(({ command }) => {
           main: path.join(__dirname, 'index.html'),
           overlay: path.join(__dirname, 'overlay.html'),
           recordingOverlay: path.join(__dirname, 'recording-overlay.html'),
+          cameraOverlay: path.join(__dirname, 'camera-overlay.html'),
         },
       },
     },
