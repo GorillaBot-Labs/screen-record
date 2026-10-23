@@ -33,6 +33,7 @@ function toLibraryRecording(recording: {
   title: string | null;
   gcsObjectName: string;
   publicUrl: string;
+  posterUrl: string | null;
   createdAt: Date;
   notes: string | null;
   tags: string[];
@@ -46,6 +47,7 @@ function toLibraryRecording(recording: {
     title: recording.title,
     gcsObjectName: recording.gcsObjectName,
     publicUrl: recording.publicUrl,
+    posterUrl: recording.posterUrl,
     createdAt: recording.createdAt.toISOString(),
     notes: recording.notes,
     tags: recording.tags ?? [],

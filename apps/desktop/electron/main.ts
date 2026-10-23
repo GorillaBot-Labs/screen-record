@@ -20,7 +20,7 @@ import { destroyCameraOverlay, openCameraOverlay, registerCameraOverlayIpc } fro
 import { destroyRecordingOverlay, openRecordingOverlay, registerRecordingOverlayIpc } from './recording-overlay'
 import { DEFAULT_CAPTURE_INPUT, parseCaptureIndices } from './capture-input'
 import { ensureSupportedMacOs } from './macos-version'
-import { uploadRecordingToGcs } from './gcs-upload'
+import { uploadPosterJpegToGcs, uploadRecordingToGcs } from './gcs-upload'
 import { recordingElapsedSeconds } from './recording-duration'
 import { formatRecordingElapsed } from './format-recording-elapsed'
 import { isPathInsideRecordingStagingDir, recordingStagingDir } from './recording-staging'
@@ -271,6 +271,38 @@ async function captureDisplayScreenshot(
   }
 }
 
+async function captureRecordingPoster(
+  sckPath: string,
+  mp4Path: string,
+): Promise<{ ok: true; jpeg: Buffer; width: number; height: number } | { ok: false; error: string }> {
+  const r = await spawnCollectUtf8(
+    sckPath,
+    ['--poster-json', '--input', mp4Path, '--time', '1', '--max-width', '1200'],
+    { timeoutMs: 20_000, maxBytes: 8 * 1024 * 1024 },
+  )
+  if (r.timedOut) return { ok: false, error: 'Poster timed out.' }
+  if (r.status !== 0) {
+    const errMsg = r.stderr.trim().length > 0 ? r.stderr.trim() : 'sck-record poster failed.'
+    return { ok: false, error: errMsg }
+  }
+  const trimmed = r.stdout.trim()
+  if (trimmed.length === 0) return { ok: false, error: 'Empty poster response.' }
+  try {
+    const o = JSON.parse(trimmed) as {
+      ok?: boolean
+      jpegBase64?: string
+      width?: number
+      height?: number
+    }
+    if (!o.ok || typeof o.jpegBase64 !== 'string' || typeof o.width !== 'number' || typeof o.height !== 'number') {
+      return { ok: false, error: 'Invalid poster JSON.' }
+    }
+    return { ok: true, jpeg: Buffer.from(o.jpegBase64, 'base64'), width: o.width, height: o.height }
+  } catch {
+    return { ok: false, error: 'Could not parse poster JSON.' }
+  }
+}
+
 function defaultOutputPath(): string {
   const stamp = new Date().toISOString().replaceAll(':', '-').replaceAll('.', '-')
   return path.join(recordingStagingDir(), `recording_${stamp}.mp4`)
@@ -301,6 +333,7 @@ async function ingestRecordingToWeb(
   gcsObjectName: string,
   publicUrl: string,
   durationSeconds?: number,
+  posterUrl?: string,
 ): Promise<WebIngestResult> {
   const base = process.env.WEB_APP_BASE_URL?.trim()?.replace(/\/+$/, '')
   const secret = process.env.DESKTOP_INGEST_SECRET?.trim()
@@ -313,6 +346,7 @@ async function ingestRecordingToWeb(
         gcsObjectName,
         publicUrl,
         ...(durationSeconds != null ? { durationSeconds } : {}),
+        ...(posterUrl ? { posterUrl } : {}),
       }),
     })
     if (!res.ok) {
@@ -853,11 +887,24 @@ ipcMain.handle(
         let detailUrl: string | undefined
         let ingestError: string | undefined
         if (result.ok) {
+          let posterUrl: string | undefined
+          const sckPath = resolveSckRecorderPath()
+          if (sckPath) {
+            const poster = await captureRecordingPoster(sckPath, outputPath)
+            if (poster.ok) {
+              const uploaded = await uploadPosterJpegToGcs(poster.jpeg, result.objectName)
+              if (uploaded.ok) posterUrl = uploaded.url
+              else console.warn('Poster upload failed:', uploaded.error)
+            } else {
+              console.warn('Poster generation failed:', poster.error)
+            }
+          }
           const gcsUrl = result.url
           const ingest = await ingestRecordingToWeb(
             result.objectName,
             gcsUrl,
             durationSeconds,
+            posterUrl,
           )
           if (ingest.ok) {
             detailUrl = ingest.detailUrl

@@ -1,4 +1,4 @@
-import { deleteRecordingsMp4Object } from "@/lib/gcs";
+import { deleteRecordingPosterObject, deleteRecordingsMp4Object } from "@/lib/gcs";
 import { prisma } from "@/lib/prisma";
 
 export type DeleteRecordingResult =
@@ -24,7 +24,10 @@ export async function deleteRecordingById(
   }
 
   try {
-    await deleteRecordingsMp4Object(recording.gcsObjectName);
+    await Promise.all([
+      deleteRecordingsMp4Object(recording.gcsObjectName),
+      deleteRecordingPosterObject(recording.gcsObjectName),
+    ]);
   } catch {
     return { ok: false, error: "Could not delete file from storage" };
   }

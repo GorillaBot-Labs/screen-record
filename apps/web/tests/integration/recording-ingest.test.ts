@@ -29,4 +29,32 @@ describe("POST /api/recordings/ingest", () => {
     });
     expect(recording.durationSeconds).toBe(142.5);
   });
+
+  it("stores posterUrl when the desktop upload includes a poster", async () => {
+    const secret = process.env.DESKTOP_INGEST_SECRET ?? "test-ingest-secret";
+    process.env.DESKTOP_INGEST_SECRET = secret;
+
+    const gcsObjectName = `recordings/test-ingest-poster-${Date.now()}.mp4`;
+    const posterUrl = `https://storage.example.com/${gcsObjectName.replace(/\.mp4$/, ".poster.jpg")}`;
+    const request = new Request("http://localhost/api/recordings/ingest", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-desktop-ingest-secret": secret,
+      },
+      body: JSON.stringify({
+        gcsObjectName,
+        publicUrl: `https://storage.example.com/${gcsObjectName}`,
+        posterUrl,
+      }),
+    });
+
+    const response = await POST(request);
+    expect(response.status).toBe(200);
+
+    const recording = await prisma.recording.findUniqueOrThrow({
+      where: { gcsObjectName },
+    });
+    expect(recording.posterUrl).toBe(posterUrl);
+  });
 });

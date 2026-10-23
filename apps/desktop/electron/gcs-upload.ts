@@ -1,5 +1,5 @@
 import { Storage } from '@google-cloud/storage'
-import { gcsRecordingObjectName } from './gcs-recording-path'
+import { gcsPosterObjectName, gcsRecordingObjectName } from './gcs-recording-path'
 
 /**
  * Upload finished recordings to Google Cloud Storage and return the canonical **public** HTTPS URL.
@@ -51,6 +51,42 @@ export async function uploadRecordingToGcs(
     const url = file.publicUrl()
 
     return { ok: true, url, bucketName, objectName }
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e)
+    return { ok: false, error: msg }
+  }
+}
+
+/** Upload a JPEG poster next to a recording. Failure here should not block the MP4 upload. */
+export async function uploadPosterJpegToGcs(
+  jpeg: Buffer,
+  mp4ObjectName: string,
+): Promise<{ ok: true; url: string; objectName: string } | { ok: false; error: string }> {
+  const bucketName = process.env.GCS_BUCKET?.trim()
+  if (!bucketName) {
+    return { ok: false, error: 'GCS_BUCKET is not set.' }
+  }
+
+  let objectName: string
+  try {
+    objectName = gcsPosterObjectName(mp4ObjectName)
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e)
+    return { ok: false, error: msg }
+  }
+
+  try {
+    const storage = new Storage()
+    const bucket = storage.bucket(bucketName)
+    const file = bucket.file(objectName)
+    await file.save(jpeg, {
+      resumable: false,
+      metadata: {
+        contentType: 'image/jpeg',
+        cacheControl: 'public, max-age=31536000',
+      },
+    })
+    return { ok: true, url: file.publicUrl(), objectName }
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e)
     return { ok: false, error: msg }

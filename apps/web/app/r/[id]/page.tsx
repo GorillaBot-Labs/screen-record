@@ -28,7 +28,7 @@ export async function generateMetadata({
   const { id } = await params;
   const recording = await prisma.recording.findUnique({
     where: { id },
-    select: { title: true, gcsObjectName: true, notes: true },
+    select: { title: true, gcsObjectName: true, notes: true, publicUrl: true, posterUrl: true },
   });
   if (!recording) return { title: "Recording not found" };
 
@@ -38,6 +38,8 @@ export async function generateMetadata({
     title,
     notes: recording.notes,
     appBaseUrl: appBaseUrl(),
+    publicUrl: recording.publicUrl,
+    posterUrl: recording.posterUrl,
   });
 
   return {
@@ -49,6 +51,7 @@ export async function generateMetadata({
       url: og.url,
       type: "video.other",
       images: og.images,
+      videos: og.videos,
     },
     twitter: {
       card: "summary_large_image",
@@ -82,6 +85,7 @@ export default async function RecordingDetailPage({
       where: { id },
       select: {
         publicUrl: true,
+        posterUrl: true,
         title: true,
         gcsObjectName: true,
         createdAt: true,
@@ -172,6 +176,7 @@ export default async function RecordingDetailPage({
       <RecordingViewer
         recordingId={id}
         publicUrl={recording.publicUrl}
+        posterUrl={recording.posterUrl}
         initialComments={initialComments}
         startAtSeconds={startAtSeconds}
       />

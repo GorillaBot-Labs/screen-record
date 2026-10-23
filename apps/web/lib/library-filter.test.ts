@@ -12,6 +12,7 @@ function recording(overrides: Partial<LibraryRecording> = {}): LibraryRecording 
     title: "Quarterly review",
     gcsObjectName: "recordings/2024/q1-review.mp4",
     publicUrl: "https://example.com/q1-review.mp4",
+    posterUrl: null,
     createdAt: "2024-06-15T12:00:00.000Z",
     notes: "Walkthrough for stakeholders",
     tags: ["product"],

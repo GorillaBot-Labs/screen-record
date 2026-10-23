@@ -3,6 +3,7 @@ export type LibraryRecording = {
   title: string | null;
   gcsObjectName: string;
   publicUrl: string;
+  posterUrl: string | null;
   createdAt: string;
   notes: string | null;
   tags: string[];

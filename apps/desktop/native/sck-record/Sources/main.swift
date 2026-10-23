@@ -59,12 +59,13 @@ enum RecordError: Error, CustomStringConvertible {
   case badAudio(Int, Int)
   case badCamera(Int, Int)
   case screenshot(String)
+  case poster(String)
   case writer(String)
 
   var description: String {
     switch self {
     case .usage:
-      return "Usage: sck-record --output <file.mp4> --display <n> --audio <n> [--camera <n>] [--exclude-pid <pid>] (or --list-json, or --screenshot-json --display <n>)"
+      return "Usage: sck-record --output <file.mp4> --display <n> --audio <n> [--camera <n>] [--exclude-pid <pid>] (or --list-json, or --screenshot-json --display <n>, or --poster-json --input <file.mp4>)"
     case let .badDisplay(i, max):
       return "Display index \(i) out of range (0..<\(max))"
     case let .badAudio(i, max):
@@ -73,6 +74,8 @@ enum RecordError: Error, CustomStringConvertible {
       return "Camera index \(i) out of range (0..<\(max))"
     case .screenshot(let m):
       return "Screenshot failed: \(m)"
+    case .poster(let m):
+      return "Poster failed: \(m)"
     case .writer(let m): return "AVAssetWriter: \(m)"
     }
   }
@@ -718,6 +721,84 @@ private func printScreenshotJSON(displayIndex: Int, maxWidth: Int?) async throws
   FileHandle.standardOutput.write(Data([10]))
 }
 
+private func jpegData(from cgImage: CGImage, quality: CGFloat) -> Data? {
+  let out = NSMutableData()
+  guard
+    let dest = CGImageDestinationCreateWithData(out as CFMutableData, UTType.jpeg.identifier as CFString, 1, nil)
+  else { return nil }
+  let props = [kCGImageDestinationLossyCompressionQuality: quality] as CFDictionary
+  CGImageDestinationAddImage(dest, cgImage, props)
+  guard CGImageDestinationFinalize(dest) else { return nil }
+  return out as Data
+}
+
+private func parsePosterArgs() throws -> (input: String, time: Double, maxWidth: Int) {
+  var input: String?
+  var time = 1.0
+  var maxWidth = 1200
+  var i = CommandLine.arguments.makeIterator()
+  _ = i.next()
+  while let arg = i.next() {
+    switch arg {
+    case "--input":
+      if let v = i.next() { input = v }
+    case "--time":
+      if let v = i.next(), let n = Double(v), n >= 0 { time = n }
+    case "--max-width":
+      if let v = i.next(), let n = Int(v), n > 0 { maxWidth = n }
+    default:
+      break
+    }
+  }
+  guard let path = input, !path.isEmpty else { throw RecordError.usage }
+  return (path, time, maxWidth)
+}
+
+private func printPosterJSON(inputPath: String, timeSeconds: Double, maxWidth: Int) throws {
+  let asset = AVURLAsset(url: URL(fileURLWithPath: inputPath))
+  let generator = AVAssetImageGenerator(asset: asset)
+  generator.appliesPreferredTrackTransform = true
+  generator.maximumSize = CGSize(width: maxWidth, height: maxWidth)
+  generator.requestedTimeToleranceBefore = CMTime(seconds: 0.25, preferredTimescale: 600)
+  generator.requestedTimeToleranceAfter = CMTime(seconds: 0.25, preferredTimescale: 600)
+
+  var image: CGImage?
+  var lastMessage = "could not read a frame"
+  for seconds in [timeSeconds, 0.0] {
+    do {
+      image = try generator.copyCGImage(
+        at: CMTime(seconds: seconds, preferredTimescale: 600),
+        actualTime: nil,
+      )
+      break
+    } catch {
+      lastMessage = error.localizedDescription
+    }
+  }
+  guard let cg = image else { throw RecordError.poster(lastMessage) }
+  guard let jpeg = jpegData(from: cg, quality: 0.82) else {
+    throw RecordError.poster("could not encode jpeg")
+  }
+
+  struct Root: Codable {
+    let ok: Bool
+    let jpegBase64: String
+    let width: Int
+    let height: Int
+  }
+  let root = Root(
+    ok: true,
+    jpegBase64: jpeg.base64EncodedString(),
+    width: cg.width,
+    height: cg.height,
+  )
+  let enc = JSONEncoder()
+  enc.outputFormatting = [.sortedKeys]
+  let data = try enc.encode(root)
+  FileHandle.standardOutput.write(data)
+  FileHandle.standardOutput.write(Data([10]))
+}
+
 @main
 struct SckRecordMain {
   static func main() async {
@@ -734,6 +815,16 @@ struct SckRecordMain {
       do {
         let (dIdx, maxW) = try parseScreenshotArgs()
         try await printScreenshotJSON(displayIndex: dIdx, maxWidth: maxW)
+      } catch {
+        fputs("\(error)\n", stderr)
+        exit(1)
+      }
+      return
+    }
+    if CommandLine.arguments.contains("--poster-json") {
+      do {
+        let (input, time, maxW) = try parsePosterArgs()
+        try printPosterJSON(inputPath: input, timeSeconds: time, maxWidth: maxW)
       } catch {
         fputs("\(error)\n", stderr)
         exit(1)

@@ -1,10 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
+import { deleteRecordingPosterObject, deleteRecordingsMp4Object } from "@/lib/gcs";
 import { deleteRecordingById, deleteRecordingsByIds } from "@/lib/recording-delete";
 import { prisma } from "@/lib/prisma";
 import { createTestRecording } from "./helpers/recording-fixture";
 
 vi.mock("@/lib/gcs", () => ({
   deleteRecordingsMp4Object: vi.fn().mockResolvedValue(undefined),
+  deleteRecordingPosterObject: vi.fn().mockResolvedValue(undefined),
 }));
 
 describe("deleteRecordingById", () => {
@@ -21,6 +23,8 @@ describe("deleteRecordingById", () => {
     const result = await deleteRecordingById(recording.id);
 
     expect(result).toEqual({ ok: true });
+    expect(deleteRecordingsMp4Object).toHaveBeenCalledWith(recording.gcsObjectName);
+    expect(deleteRecordingPosterObject).toHaveBeenCalledWith(recording.gcsObjectName);
     expect(await prisma.recording.findUnique({ where: { id: recording.id } })).toBeNull();
     expect(await prisma.recordingComment.count({ where: { recordingId: recording.id } })).toBe(0);
   });

@@ -40,6 +40,24 @@ export async function POST(request: Request) {
   const durationSeconds =
     Number.isFinite(durationRaw) && durationRaw > 0 ? durationRaw : undefined;
 
+  const posterRaw =
+    typeof body === "object" && body !== null && "posterUrl" in body
+      ? String((body as { posterUrl: unknown }).posterUrl).trim()
+      : "";
+  let posterUrl: string | undefined;
+  if (posterRaw) {
+    let parsed: URL;
+    try {
+      parsed = new URL(posterRaw);
+    } catch {
+      return NextResponse.json({ ok: false, error: "posterUrl must be an http(s) URL" }, { status: 400 });
+    }
+    if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+      return NextResponse.json({ ok: false, error: "posterUrl must be an http(s) URL" }, { status: 400 });
+    }
+    posterUrl = parsed.toString();
+  }
+
   const recording = await prisma.recording.upsert({
     where: { gcsObjectName },
     create: {
@@ -47,10 +65,12 @@ export async function POST(request: Request) {
       publicUrl,
       title: titleFromFilename,
       ...(durationSeconds != null ? { durationSeconds } : {}),
+      ...(posterUrl != null ? { posterUrl } : {}),
     },
     update: {
       publicUrl,
       ...(durationSeconds != null ? { durationSeconds } : {}),
+      ...(posterUrl != null ? { posterUrl } : {}),
     },
     select: { id: true, title: true },
   });

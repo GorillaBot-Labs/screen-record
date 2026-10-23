@@ -136,6 +136,7 @@ export function RecordingCard({
               className="h-full w-full object-cover transition-transform duration-200 group-hover:scale-[1.02]"
               playsInline
               preload="metadata"
+              poster={recording.posterUrl ?? undefined}
               src={recording.publicUrl}
               disablePictureInPicture
               tabIndex={-1}

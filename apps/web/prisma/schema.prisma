@@ -37,6 +37,7 @@ model Recording {
   id              String             @id @default(auto()) @map("_id") @db.ObjectId
   gcsObjectName   String             @unique
   publicUrl       String
+  posterUrl       String?
   createdAt       DateTime           @default(now())
   title           String?
   notes           String?

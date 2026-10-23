@@ -1,3 +1,4 @@
+import { posterObjectNameForRecording } from "@/lib/poster-object";
 import { Storage } from "@google-cloud/storage";
 
 export const RECORDINGS_PREFIX = "recordings/";
@@ -35,4 +36,11 @@ export async function deleteRecordingsMp4Object(gcsObjectName: string): Promise<
   assertRecordingsMp4Key(gcsObjectName);
   const bucket = getStorage().bucket(getGcsBucketName());
   await bucket.file(gcsObjectName).delete({ ignoreNotFound: true });
+}
+
+/** Deletes the sibling poster if one was uploaded. Missing posters are ignored. */
+export async function deleteRecordingPosterObject(gcsObjectName: string): Promise<void> {
+  const posterName = posterObjectNameForRecording(gcsObjectName);
+  const bucket = getStorage().bucket(getGcsBucketName());
+  await bucket.file(posterName).delete({ ignoreNotFound: true });
 }

@@ -16,6 +16,7 @@ export type RecordingCommentItem = {
 type RecordingViewerProps = {
   recordingId: string;
   publicUrl: string;
+  posterUrl?: string | null;
   initialComments: RecordingCommentItem[];
   startAtSeconds?: number;
 };
@@ -32,6 +33,7 @@ const postedFormatter = new Intl.DateTimeFormat(undefined, {
 export function RecordingViewer({
   recordingId,
   publicUrl,
+  posterUrl,
   initialComments,
   startAtSeconds,
 }: RecordingViewerProps) {
@@ -152,6 +154,7 @@ export function RecordingViewer({
               controls
               playsInline
               preload="metadata"
+              poster={posterUrl ?? undefined}
               src={publicUrl}
             >
               Your browser does not support embedded video.
