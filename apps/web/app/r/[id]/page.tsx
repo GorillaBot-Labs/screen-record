@@ -5,6 +5,7 @@ import { RecordingMetadataEditor } from "@/app/components/RecordingMetadataEdito
 import { RecordingTags } from "@/app/components/RecordingTags";
 import { RecordingViewTracker } from "@/app/components/RecordingViewTracker";
 import { appBaseUrl } from "@/lib/app-url";
+import { recordingDownloadFilename } from "@/lib/recording-download";
 import {
   displayTitle,
   recordingDateLongFormatter,
@@ -112,8 +113,7 @@ export default async function RecordingDetailPage({
   if (!recording) notFound();
 
   const shareUrl = `${appBaseUrl()}/r/${id}`;
-  const downloadFilename =
-    recording.gcsObjectName.split("/").pop() ?? `recording-${id}.mp4`;
+  const downloadFilename = recordingDownloadFilename(recording.gcsObjectName, id);
   const initialComments = recording.comments.map((c) => ({
     ...c,
     createdAt: c.createdAt.toISOString(),
@@ -165,6 +165,7 @@ export default async function RecordingDetailPage({
             </div>
           </div>
           <RecordingShareActions
+            recordingId={id}
             shareUrl={shareUrl}
             publicUrl={recording.publicUrl}
             downloadFilename={downloadFilename}

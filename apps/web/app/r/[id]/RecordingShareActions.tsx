@@ -5,17 +5,20 @@ import {
   modalButtonPrimary,
   modalButtonSecondary,
 } from "@/app/components/Modal";
+import { recordingDownloadPath } from "@/lib/recording-download";
 import { buildEmbedHtml } from "@/lib/share-links";
 import { Check, Code, Copy, Download, ExternalLink } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
 import { toast } from "sonner";
 
 export function RecordingShareActions({
+  recordingId,
   shareUrl,
   publicUrl,
   downloadFilename,
   compact = false,
 }: {
+  recordingId: string;
   shareUrl: string;
   publicUrl: string;
   downloadFilename: string;
@@ -67,7 +70,7 @@ export function RecordingShareActions({
           <span>{copied === "link" ? "Copied" : "Copy link"}</span>
         </button>
         <a
-          href={publicUrl}
+          href={recordingDownloadPath(recordingId)}
           download={downloadFilename}
           className={`${btnClass} border border-border bg-background text-foreground hover:bg-surface`}
         >
