@@ -2,8 +2,9 @@
 
 import { ProjectNav } from "@/app/components/ProjectNav";
 import type { ProjectTree } from "@/lib/projects";
+import { signOut } from "@/app/actions/gallery-session";
 import { LogoMark } from "@/app/components/LogoMark";
-import { LayoutGrid, X } from "lucide-react";
+import { LayoutGrid, LogOut, X } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 import { Suspense, useCallback, useEffect, useId, useRef } from "react";
@@ -97,6 +98,17 @@ export function SidebarContent({
           <ProjectNav projectTree={projectTree} onNavigate={onNavigate} />
         </Suspense>
       </nav>
+      <div className="shrink-0 border-t border-border p-3">
+        <form action={signOut}>
+          <button
+            type="submit"
+            className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-zinc-600 transition-colors hover:bg-surface hover:text-foreground"
+          >
+            <LogOut className="h-[18px] w-[18px] text-zinc-400" aria-hidden />
+            Sign out
+          </button>
+        </form>
+      </div>
     </div>
   );
 }

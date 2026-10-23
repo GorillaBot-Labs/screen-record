@@ -1,8 +1,14 @@
+import { isGallerySignedIn } from "@/lib/gallery-auth";
+import { galleryUnauthorizedResponse } from "@/lib/gallery-http";
 import { deleteRecordingsByIds } from "@/lib/recording-delete";
 import { revalidatePath } from "next/cache";
 import { NextResponse } from "next/server";
 
 export async function POST(request: Request) {
+  if (!(await isGallerySignedIn())) {
+    return galleryUnauthorizedResponse({ deleted: 0, deletedIds: [] });
+  }
+
   let body: unknown;
   try {
     body = await request.json();

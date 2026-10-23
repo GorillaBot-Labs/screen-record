@@ -1,5 +1,6 @@
 "use server";
 
+import { denyUnlessGalleryOperator } from "@/lib/gallery-auth";
 import { revalidatePath } from "next/cache";
 import {
   createFolderInCatalog,
@@ -10,9 +11,11 @@ import {
 } from "@/lib/projects";
 
 export async function createProject(name: string) {
-  const result = await createProjectInCatalog(name);
-  if (result.ok) revalidatePath("/");
-  return result;
+  return denyUnlessGalleryOperator(async () => {
+    const result = await createProjectInCatalog(name);
+    if (result.ok) revalidatePath("/");
+    return result;
+  });
 }
 
 export async function createFolder(input: {
@@ -20,9 +23,11 @@ export async function createFolder(input: {
   name: string;
   parentFolderId?: string | null;
 }) {
-  const result = await createFolderInCatalog(input);
-  if (result.ok) revalidatePath("/");
-  return result;
+  return denyUnlessGalleryOperator(async () => {
+    const result = await createFolderInCatalog(input);
+    if (result.ok) revalidatePath("/");
+    return result;
+  });
 }
 
 export async function moveRecording(input: {
@@ -30,22 +35,29 @@ export async function moveRecording(input: {
   projectId: string | null;
   folderId: string | null;
 }) {
-  const result = await moveRecordingInCatalog(input);
-  if (result.ok) {
-    revalidatePath("/");
-    revalidatePath(`/r/${input.recordingId}`);
-  }
-  return result;
+  return denyUnlessGalleryOperator(async () => {
+    const result = await moveRecordingInCatalog(input);
+    if (result.ok) {
+      revalidatePath("/");
+      revalidatePath(`/r/${input.recordingId}`);
+      revalidatePath(`/recordings/${input.recordingId}`);
+    }
+    return result;
+  });
 }
 
 export async function deleteFolder(folderId: string) {
-  const result = await deleteFolderInCatalog(folderId);
-  if (result.ok) revalidatePath("/");
-  return result;
+  return denyUnlessGalleryOperator(async () => {
+    const result = await deleteFolderInCatalog(folderId);
+    if (result.ok) revalidatePath("/");
+    return result;
+  });
 }
 
 export async function deleteProject(input: { projectId: string; confirmationName: string }) {
-  const result = await deleteProjectInCatalog(input);
-  if (result.ok) revalidatePath("/");
-  return result;
+  return denyUnlessGalleryOperator(async () => {
+    const result = await deleteProjectInCatalog(input);
+    if (result.ok) revalidatePath("/");
+    return result;
+  });
 }

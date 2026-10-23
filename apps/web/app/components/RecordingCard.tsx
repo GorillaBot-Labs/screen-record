@@ -56,7 +56,8 @@ export function RecordingCard({
     draggedRef.current = false;
   }, []);
 
-  const sharePagePath = `/r/${recording.id}`;
+  const watchPath = `/r/${recording.id}`;
+  const managePath = `/recordings/${recording.id}`;
   const name = displayTitle(recording);
   const createdAt = asDate(recording.createdAt);
 
@@ -65,14 +66,14 @@ export function RecordingCard({
       e.preventDefault();
       e.stopPropagation();
       try {
-        const shareUrl = `${window.location.origin}${sharePagePath}`;
+        const shareUrl = `${window.location.origin}${watchPath}`;
         await navigator.clipboard.writeText(shareUrl);
         toast.success("Share link copied");
       } catch {
         toast.error("Could not copy link");
       }
     },
-    [sharePagePath],
+    [watchPath],
   );
 
   const openDeleteDialog = useCallback((e: React.MouseEvent) => {
@@ -126,7 +127,7 @@ export function RecordingCard({
         ) : null}
 
         <Link
-          href={sharePagePath}
+          href={managePath}
           onClick={draggable ? blockNavigationAfterDrag : undefined}
           className="relative block outline-none"
           aria-label={`Open recording: ${name}`}
@@ -201,7 +202,7 @@ export function RecordingCard({
       <div className="min-w-0 px-0.5">
         <h2 className="truncate text-sm font-medium text-foreground" title={name}>
           <Link
-            href={sharePagePath}
+            href={managePath}
             onClick={draggable ? blockNavigationAfterDrag : undefined}
             className="hover:text-accent"
           >

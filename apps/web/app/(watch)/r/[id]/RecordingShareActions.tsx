@@ -17,12 +17,14 @@ export function RecordingShareActions({
   publicUrl,
   downloadFilename,
   compact = false,
+  variant = "manage",
 }: {
   recordingId: string;
   shareUrl: string;
   publicUrl: string;
   downloadFilename: string;
   compact?: boolean;
+  variant?: "manage" | "watch";
 }) {
   const btnClass = compact
     ? "inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors"
@@ -77,23 +79,27 @@ export function RecordingShareActions({
           <Download className="h-4 w-4 shrink-0 opacity-70" aria-hidden />
           Download
         </a>
-        <button
-          type="button"
-          onClick={() => setEmbedOpen(true)}
-          className={`${btnClass} border border-border bg-background text-foreground hover:bg-surface`}
-        >
-          <Code className="h-4 w-4 shrink-0 opacity-70" aria-hidden />
-          Embed
-        </button>
-        <a
-          href={publicUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-          className={`${btnClass} border border-border bg-background text-foreground hover:bg-surface`}
-        >
-          <ExternalLink className="h-4 w-4 shrink-0 opacity-70" aria-hidden />
-          Direct video
-        </a>
+        {variant === "manage" ? (
+          <>
+            <button
+              type="button"
+              onClick={() => setEmbedOpen(true)}
+              className={`${btnClass} border border-border bg-background text-foreground hover:bg-surface`}
+            >
+              <Code className="h-4 w-4 shrink-0 opacity-70" aria-hidden />
+              Embed
+            </button>
+            <a
+              href={publicUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className={`${btnClass} border border-border bg-background text-foreground hover:bg-surface`}
+            >
+              <ExternalLink className="h-4 w-4 shrink-0 opacity-70" aria-hidden />
+              Direct video
+            </a>
+          </>
+        ) : null}
       </div>
 
       <Modal

@@ -1,8 +1,6 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
-import { AppShell } from "./components/AppShell";
 import { AppToaster } from "./components/AppToaster";
-import { loadProjectTree } from "@/lib/projects";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -20,20 +18,18 @@ export const metadata: Metadata = {
   description: "Screen recording gallery",
 };
 
-export default async function RootLayout({
+export default function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
-  const projectTree = await loadProjectTree();
-
   return (
     <html
       lang="en"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
       <body className="flex min-h-dvh flex-col">
-        <AppShell projectTree={projectTree}>{children}</AppShell>
+        {children}
         <AppToaster />
       </body>
     </html>

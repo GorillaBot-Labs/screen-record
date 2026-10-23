@@ -1,5 +1,5 @@
-import { RecordingShareActions } from "@/app/r/[id]/RecordingShareActions";
-import { RecordingViewer } from "@/app/r/[id]/RecordingViewer";
+import { RecordingShareActions } from "@/app/(watch)/r/[id]/RecordingShareActions";
+import { RecordingViewer } from "@/app/(watch)/r/[id]/RecordingViewer";
 import { RecordingLocationPicker } from "@/app/components/RecordingLocationPicker";
 import { RecordingMetadataEditor } from "@/app/components/RecordingMetadataEditor";
 import { RecordingTags } from "@/app/components/RecordingTags";
@@ -128,13 +128,21 @@ export default async function RecordingDetailPage({
     <main className="flex min-h-0 flex-1 flex-col bg-background">
       <RecordingViewTracker recordingId={id} />
       <header className="shrink-0 border-b border-border px-6 py-3 md:px-8">
-        <Link
-          href="/"
-          className="inline-flex items-center gap-1.5 text-sm text-muted transition-colors hover:text-accent"
-        >
-          <ArrowLeft className="h-3.5 w-3.5 shrink-0" aria-hidden />
-          Library
-        </Link>
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+          <Link
+            href="/"
+            className="inline-flex items-center gap-1.5 text-sm text-muted transition-colors hover:text-accent"
+          >
+            <ArrowLeft className="h-3.5 w-3.5 shrink-0" aria-hidden />
+            Library
+          </Link>
+          <Link
+            href={`/r/${id}`}
+            className="text-sm text-muted transition-colors hover:text-accent"
+          >
+            Public page
+          </Link>
+        </div>
 
         <div className="mt-2.5 flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between lg:gap-6">
           <div className="min-w-0 flex-1 space-y-2">

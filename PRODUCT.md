@@ -29,7 +29,7 @@ Native **ScreenCaptureKit** capture on macOS (no ffmpeg), a menu-bar-first recor
 ## Operating Context
 
 - Desktop runs locally or as a packaged `.app` on **macOS 13+**.
-- Web gallery is open — no login gate; share pages and library are publicly reachable when deployed.
+- Share pages (`/r/id`) are public and view-only. The library and recording management require one shared operator sign-in (`GALLERY_EMAIL` / `GALLERY_PASSWORD`); there are no user accounts.
 - Desktop posts to `/api/recordings/ingest` after upload when `WEB_APP_BASE_URL` and `DESKTOP_INGEST_SECRET` are configured.
 - GCP credentials: `~/.screen-record/gcp-credentials.json` (desktop) or env on web.
 
@@ -37,7 +37,7 @@ Native **ScreenCaptureKit** capture on macOS (no ffmpeg), a menu-bar-first recor
 
 **Desktop:** display/mic selection, countdown, tray control, pause/resume/stop, H.264 MP4 via VideoToolbox, GCS upload, clipboard + optional browser open for share URL.
 
-**Web gallery:** grid library with search/sort/tags, projects and folders, public detail pages with embedded player, editable title/description, viewer analytics, download + embed, timestamped anonymous comments, copy share link, delete (GCS + Mongo), no per-user accounts or RBAC.
+**Web gallery:** grid library with search/sort/tags, projects and folders, and a management page per recording (editable title/description, tags, location, viewer analytics, download, embed, delete). Public `/r/id` pages play the video, show the description, and allow timestamped anonymous comments, copy link, and download. One shared operator password gates the library; no per-user accounts or RBAC.
 
 **Data:** Mongo catalogs GCS objects. Recording fields include `title`, `notes`, `tags`, `durationSeconds`, `viewCount`, `lastViewedAt`, optional `projectId` / `folderId`. Projects contain folders (nested) and recordings.
 
@@ -64,7 +64,7 @@ Native **ScreenCaptureKit** capture on macOS (no ffmpeg), a menu-bar-first recor
 
 1. **Link-first sharing** — prefer `/r/id` pages over raw bucket URLs.
 2. **Recorder speed** — minimize steps from stop to copied link.
-3. **Open gallery** — library and share pages are public; access control is not implemented yet.
+3. **Public watch, private library** — anyone with a share link can watch; renaming, organizing, and deleting stay behind the operator sign-in.
 4. **Catalog honesty** — the gallery reflects recordings uploaded and cataloged through the app.
 5. **Native where it matters** — macOS capture quality over cross-platform breadth for now.
 
