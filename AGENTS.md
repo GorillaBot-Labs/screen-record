@@ -15,7 +15,12 @@ npm workspaces, one lockfile at the root. Package names for `-w`:
 ```bash
 npm ci                                   # from the repo root; also runs prisma generate
 cp apps/web/.env.test.example apps/web/.env.test   # for integration tests
+npx agent-browser install                # one-time: Chrome for factory browser checks
 ```
+
+The `agent-browser` CLI is a root devDependency (`npx agent-browser …` from the
+repo root). Factory builders and UI reviewers use it for in-browser checks;
+run `agent-browser skills get core` before the first session.
 
 Integration tests need a MongoDB replica set on `localhost:27018`
 (`npm run test:db:up` starts one with Docker). They delete all data in their
