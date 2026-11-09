@@ -10,3 +10,5 @@ release
 apps/desktop/.env
 apps/desktop/.env.production
 .credentials
+/factory/jobs/
+/.worktrees/
