@@ -1,6 +1,5 @@
 import { PublicWatchBar } from "@/app/(watch)/r/[id]/PublicWatchBar";
-import { RecordingShareActions } from "@/app/(watch)/r/[id]/RecordingShareActions";
-import { RecordingViewer } from "@/app/(watch)/r/[id]/RecordingViewer";
+import { WatchRecording } from "@/app/(watch)/r/[id]/WatchRecording";
 import { RecordingViewTracker } from "@/app/components/RecordingViewTracker";
 import { appBaseUrl } from "@/lib/app-url";
 import { recordingDownloadFilename } from "@/lib/recording-download";
@@ -116,40 +115,29 @@ export default async function PublicRecordingPage({
         accountEmail={signedIn ? galleryOperatorEmail() : null}
       />
       <RecordingViewTracker recordingId={id} />
-      <header className="shrink-0 border-b border-border px-4 py-4 md:px-6">
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between lg:gap-6">
-          <div className="min-w-0 flex-1">
-            <h1 className="truncate text-xl font-semibold tracking-tight text-foreground md:text-2xl">
-              {title}
-            </h1>
-            {recording.notes?.trim() ? (
-              <p className="mt-1.5 max-w-2xl text-sm leading-relaxed text-muted">
-                {recording.notes.trim()}
-              </p>
-            ) : null}
-            <p className="mt-2 text-sm text-muted">
-              <time dateTime={recording.createdAt.toISOString()}>
-                {recordingDateLongFormatter.format(recording.createdAt)}
-              </time>
-            </p>
-          </div>
-          <RecordingShareActions
-            recordingId={id}
-            shareUrl={shareUrl}
-            publicUrl={recording.publicUrl}
-            downloadFilename={downloadFilename}
-            variant="watch"
-            compact
-          />
-        </div>
-      </header>
-      <RecordingViewer
+      <WatchRecording
         recordingId={id}
+        shareUrl={shareUrl}
         publicUrl={recording.publicUrl}
         posterUrl={recording.posterUrl}
+        downloadFilename={downloadFilename}
         initialComments={initialComments}
         startAtSeconds={startAtSeconds}
-      />
+      >
+        <h1 className="truncate text-xl font-semibold tracking-tight text-foreground md:text-2xl">
+          {title}
+        </h1>
+        {recording.notes?.trim() ? (
+          <p className="mt-1.5 max-w-2xl text-sm leading-relaxed text-muted">
+            {recording.notes.trim()}
+          </p>
+        ) : null}
+        <p className="mt-2 text-sm text-muted">
+          <time dateTime={recording.createdAt.toISOString()}>
+            {recordingDateLongFormatter.format(recording.createdAt)}
+          </time>
+        </p>
+      </WatchRecording>
     </main>
   );
 }

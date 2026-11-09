@@ -3,7 +3,14 @@
 import { EmptyPlaceholder } from "@/app/components/EmptyPlaceholder";
 import { formatVideoTimestamp } from "@/lib/video-time";
 import { MessageSquare, Send } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  type RefObject,
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useRef,
+  useState,
+} from "react";
 import { toast } from "sonner";
 
 export type RecordingCommentItem = {
@@ -19,6 +26,8 @@ type RecordingViewerProps = {
   posterUrl?: string | null;
   initialComments: RecordingCommentItem[];
   startAtSeconds?: number;
+  videoRef?: RefObject<HTMLVideoElement | null>;
+  playbackRate?: number;
 };
 
 function asDate(value: string): Date {
@@ -36,8 +45,11 @@ export function RecordingViewer({
   posterUrl,
   initialComments,
   startAtSeconds,
+  videoRef: externalVideoRef,
+  playbackRate,
 }: RecordingViewerProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
+  useImperativeHandle(externalVideoRef, () => videoRef.current as HTMLVideoElement, []);
   const commentsRef = useRef<HTMLDivElement>(null);
 
   const [comments, setComments] = useState(initialComments);
@@ -69,6 +81,13 @@ export function RecordingViewer({
       video.removeEventListener("loadedmetadata", onLoadedMetadata);
     };
   }, [startAtSeconds]);
+
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video || playbackRate == null) return;
+    video.defaultPlaybackRate = playbackRate;
+    video.playbackRate = playbackRate;
+  }, [playbackRate]);
 
   useEffect(() => {
     const list = commentsRef.current;

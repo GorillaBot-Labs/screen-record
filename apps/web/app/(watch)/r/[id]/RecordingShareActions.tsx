@@ -6,10 +6,16 @@ import {
   modalButtonSecondary,
 } from "@/app/components/Modal";
 import { recordingDownloadPath } from "@/lib/recording-download";
-import { buildEmbedHtml } from "@/lib/share-links";
-import { Check, Code, Copy, Download, ExternalLink } from "lucide-react";
-import { useCallback, useMemo, useState } from "react";
+import { buildEmbedHtml, buildTimestampedShareUrl } from "@/lib/share-links";
+import { Check, Clock, Code, Copy, Download, ExternalLink } from "lucide-react";
+import { type ReactNode, useCallback, useMemo, useState } from "react";
 import { toast } from "sonner";
+
+export function shareActionButtonClass(compact: boolean): string {
+  return compact
+    ? "inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors"
+    : "inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-colors";
+}
 
 export function RecordingShareActions({
   recordingId,
@@ -18,6 +24,8 @@ export function RecordingShareActions({
   downloadFilename,
   compact = false,
   variant = "manage",
+  getPlayheadSeconds,
+  children,
 }: {
   recordingId: string;
   shareUrl: string;
@@ -25,11 +33,11 @@ export function RecordingShareActions({
   downloadFilename: string;
   compact?: boolean;
   variant?: "manage" | "watch";
+  getPlayheadSeconds?: () => number;
+  children?: ReactNode;
 }) {
-  const btnClass = compact
-    ? "inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors"
-    : "inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-colors";
-  const [copied, setCopied] = useState<"link" | "embed" | null>(null);
+  const btnClass = shareActionButtonClass(compact);
+  const [copied, setCopied] = useState<"link" | "time" | "embed" | null>(null);
   const [embedOpen, setEmbedOpen] = useState(false);
 
   const embedHtml = useMemo(() => buildEmbedHtml(shareUrl), [shareUrl]);
@@ -44,6 +52,18 @@ export function RecordingShareActions({
       toast.error("Could not copy link");
     }
   }, [shareUrl]);
+
+  const copyLinkAtTime = useCallback(async () => {
+    if (!getPlayheadSeconds) return;
+    try {
+      await navigator.clipboard.writeText(buildTimestampedShareUrl(shareUrl, getPlayheadSeconds()));
+      setCopied("time");
+      toast.success("Link copied to clipboard");
+      window.setTimeout(() => setCopied(null), 2000);
+    } catch {
+      toast.error("Could not copy link");
+    }
+  }, [getPlayheadSeconds, shareUrl]);
 
   const copyEmbed = useCallback(async () => {
     try {
@@ -71,6 +91,20 @@ export function RecordingShareActions({
           )}
           <span>{copied === "link" ? "Copied" : "Copy link"}</span>
         </button>
+        {getPlayheadSeconds ? (
+          <button
+            type="button"
+            onClick={() => void copyLinkAtTime()}
+            className={`${btnClass} border border-border bg-background text-foreground hover:bg-surface`}
+          >
+            {copied === "time" ? (
+              <Check className="h-4 w-4 shrink-0 opacity-70" aria-hidden />
+            ) : (
+              <Clock className="h-4 w-4 shrink-0 opacity-70" aria-hidden />
+            )}
+            <span>{copied === "time" ? "Copied" : "Copy link at current time"}</span>
+          </button>
+        ) : null}
         <a
           href={recordingDownloadPath(recordingId)}
           download={downloadFilename}
@@ -100,6 +134,7 @@ export function RecordingShareActions({
             </a>
           </>
         ) : null}
+        {children}
       </div>
 
       <Modal
