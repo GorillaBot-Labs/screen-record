@@ -1,8 +1,10 @@
 "use client";
 
 import { X } from "lucide-react";
-import { useCallback, useEffect, useId, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
+
+const subscribeNoop = () => () => {};
 
 type ModalSize = "sm" | "md" | "lg";
 
@@ -40,9 +42,7 @@ export function Modal({
   const titleId = useId();
   const descriptionId = useId();
   const panelRef = useRef<HTMLDivElement>(null);
-  const [mounted, setMounted] = useState(false);
-
-  useEffect(() => setMounted(true), []);
+  const mounted = useSyncExternalStore(subscribeNoop, () => true, () => false);
 
   useEffect(() => {
     if (!open) return;

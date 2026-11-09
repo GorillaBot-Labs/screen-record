@@ -7,7 +7,7 @@ import {
   modalButtonSecondary,
   modalInputClass,
 } from "@/app/components/Modal";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 
 type PromptModalProps = {
   open: boolean;
@@ -37,10 +37,12 @@ export function PromptModal({
   const inputRef = useRef<HTMLInputElement>(null);
   const formRef = useRef<HTMLFormElement>(null);
   const [value, setValue] = useState("");
+  const [prevOpen, setPrevOpen] = useState(open);
 
-  useEffect(() => {
+  if (open !== prevOpen) {
+    setPrevOpen(open);
     if (!open) setValue("");
-  }, [open]);
+  }
 
   const handleSubmit = useCallback(
     (event: React.FormEvent<HTMLFormElement>) => {
